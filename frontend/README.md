@@ -11,3 +11,10 @@ Recommended screens:
 - Shipping Provider Management
 - Packer Management
 
+## Run
+
+```powershell
+npm run dev -w frontend
+```
+
+The app runs on `http://localhost:5173`.

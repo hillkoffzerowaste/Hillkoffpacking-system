@@ -21,6 +21,5 @@ Thumbs.db
 .idea/
 
 # Imported operational files
-imports/*
-!imports/.gitkeep
-
+backend/data/
+backend/uploads/

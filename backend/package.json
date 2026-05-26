@@ -1,0 +1,21 @@
+{
+  "name": "@hillkoff/packing-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.4.1",
+    "cors": "^2.8.5",
+    "csv-parse": "^6.1.0",
+    "express": "^5.1.0",
+    "multer": "^2.0.2",
+    "nanoid": "^5.1.6",
+    "read-excel-file": "^9.0.10"
+  }
+}

@@ -1,0 +1,4 @@
+orderNumber,orderItemId,trackingCode,sellerSku,quantity,customerName,shippingProvider
+LAZ-2001,LAZ-ITEM-2001,LEX-TRACK-2001,COF-BEAN-250G,1,คุณบี,LEX TH
+LAZ-2002,LAZ-ITEM-2002,LEX-TRACK-2002,COF-FILTER-001,3,คุณอี,LEX TH
+

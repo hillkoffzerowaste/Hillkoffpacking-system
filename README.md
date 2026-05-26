@@ -30,6 +30,44 @@
 - [User Flow](docs/user-flow.md)
 - [GitHub Issues Backlog](docs/github-issues.md)
 
+## MVP Application
+
+This repository now includes a runnable MVP for the full workflow:
+
+- Backend: Express + SQLite
+- Frontend: React + Vite
+- Import parsing: CSV and XLS/XLSX
+- Demo data reset endpoint
+
+### Run Locally
+
+```powershell
+npm install
+npm run dev
+```
+
+Open:
+
+```text
+Frontend: http://localhost:5173
+Backend:  http://localhost:4000/api/health
+```
+
+Demo scan values:
+
+```text
+Packer barcode: EMP001
+Order tracking: SPX-TRACK-1001
+SKU scan: COF-DRIP-001
+Final scan: SPX-TRACK-1001
+```
+
+Sample import files are available in `imports/`.
+
+Current MVP screen:
+
+![MVP Dashboard](docs/mvp-dashboard-screenshot.png)
+
 ## Suggested Repository Structure
 
 ```text
