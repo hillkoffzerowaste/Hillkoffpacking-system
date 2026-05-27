@@ -24,6 +24,7 @@ import {
 import "./styles.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:4000/api";
+const LOCAL_STORE_KEY = "hillkoff-packing-local-db-v1";
 
 const NAV_ITEMS = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -37,13 +38,351 @@ const NAV_ITEMS = [
 ];
 
 async function api(path, options = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: options.body instanceof FormData ? undefined : { "Content-Type": "application/json" },
-    ...options
+  try {
+    const response = await fetch(`${API_BASE}${path}`, {
+      headers: options.body instanceof FormData ? undefined : { "Content-Type": "application/json" },
+      ...options
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || data.code || "Request failed");
+    return data;
+  } catch (error) {
+    if (window.location.hostname.endsWith("github.io") || error instanceof TypeError) {
+      return localApi(path, options);
+    }
+    throw error;
+  }
+}
+
+function uid() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function readLocalDb() {
+  const saved = localStorage.getItem(LOCAL_STORE_KEY);
+  if (saved) return JSON.parse(saved);
+
+  const createdAt = nowIso();
+  const db = {
+    providers: [
+      { id: uid(), code: "JNT", name: "J&T Express", display_name: "J&T Express", active: 1 },
+      { id: uid(), code: "LEX", name: "LEX TH", display_name: "LEX TH", active: 1 },
+      { id: uid(), code: "SPX", name: "SPX Express", display_name: "SPX", active: 1 },
+      { id: uid(), code: "GENERAL", name: "ขนส่งทั่วไป / รถโรงงาน", display_name: "ขนส่งทั่วไป / รถโรงงาน", active: 1 }
+    ],
+    packers: [
+      { id: uid(), employee_code: "EMP001", barcode: "EMP001", display_name: "Packer 1", active: 1 },
+      { id: uid(), employee_code: "EMP002", barcode: "EMP002", display_name: "Packer 2", active: 1 }
+    ],
+    orders: [],
+    batches: [],
+    events: [],
+    created_at: createdAt
+  };
+  writeLocalDb(db);
+  return db;
+}
+
+function writeLocalDb(db) {
+  localStorage.setItem(LOCAL_STORE_KEY, JSON.stringify(db));
+}
+
+function providerByCode(db, code) {
+  return db.providers.find((provider) => provider.code === code) || db.providers.find((provider) => provider.code === "GENERAL");
+}
+
+function decorateOrder(db, order) {
+  const provider = db.providers.find((item) => item.id === order.shipping_provider_id);
+  const packer = db.packers.find((item) => item.id === order.packed_by);
+  return {
+    ...order,
+    shipping_provider: provider?.display_name || "ไม่ระบุขนส่ง",
+    packed_by_name: packer?.display_name || null
+  };
+}
+
+function orderDetail(db, id) {
+  const order = db.orders.find((item) => item.id === id);
+  if (!order) return null;
+  return decorateOrder(db, order);
+}
+
+function findLocalOrders(db, lookup) {
+  const term = String(lookup || "").trim().toLowerCase();
+  return db.orders
+    .filter((order) => {
+      return order.tracking_id.toLowerCase() === term
+        || order.order_key.toLowerCase() === term
+        || String(order.customer_name || "").toLowerCase().includes(term);
+    })
+    .map((order) => decorateOrder(db, order));
+}
+
+function addLocalEvent(db, event) {
+  db.events.unshift({
+    id: uid(),
+    order_id: event.order_id || null,
+    order_item_id: event.order_item_id || null,
+    packer_id: event.packer_id || null,
+    scan_type: event.scan_type,
+    scanned_value: event.scanned_value,
+    result: event.result,
+    message: event.message || null,
+    created_at: nowIso()
   });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.message || data.code || "Request failed");
-  return data;
+}
+
+function resetLocalDemo() {
+  localStorage.removeItem(LOCAL_STORE_KEY);
+  const db = readLocalDb();
+  const rows = [
+    { channel: "shopee", order_key: "SHP-1001", tracking_id: "SPX-TRACK-1001", customer_name: "คุณเอ", shipping_provider_code: "SPX", items: [{ sku: "COF-DRIP-001", product_name: "Drip Coffee", quantity_required: 2 }] },
+    { channel: "lazada", order_key: "LAZ-2001", tracking_id: "LEX-TRACK-2001", customer_name: "คุณบี", shipping_provider_code: "LEX", items: [{ sku: "COF-BEAN-250G", product_name: "Coffee Beans 250g", quantity_required: 1 }] },
+    { channel: "reservation", order_key: "RSV-3001", tracking_id: "RSV-3001", customer_name: "คุณซี", shipping_provider_code: "GENERAL", items: [{ sku: "COF-GIFT-SET", product_name: "Gift Set", quantity_required: 1 }] }
+  ];
+
+  for (const row of rows) {
+    createLocalOrder(db, row);
+  }
+
+  db.batches.unshift({
+    id: uid(),
+    source: "local-demo",
+    channel: "mixed",
+    file_name: "local-demo",
+    total_rows: rows.length,
+    created_count: rows.length,
+    ignored_count: 0,
+    overwritten_count: 0,
+    error_count: 0,
+    status: "completed",
+    created_at: nowIso(),
+    completed_at: nowIso()
+  });
+  writeLocalDb(db);
+  return { ok: true, batches: db.batches.slice(0, 1), demo_scans: ["EMP001", "SPX-TRACK-1001", "COF-DRIP-001", "COF-DRIP-001"] };
+}
+
+function createLocalOrder(db, payload) {
+  const orderKey = String(payload.order_key || "").trim();
+  const trackingId = String(payload.tracking_id || orderKey).trim();
+  if (!orderKey || !trackingId) throw new Error("Order key and tracking id are required.");
+  if (db.orders.some((order) => order.tracking_id === trackingId || (order.channel === payload.channel && order.order_key === orderKey))) {
+    throw new Error("Order or tracking already exists.");
+  }
+
+  const provider = providerByCode(db, String(payload.shipping_provider_code || "GENERAL").toUpperCase());
+  const createdAt = nowIso();
+  const order = {
+    id: uid(),
+    channel: payload.channel || "reservation",
+    order_key: orderKey,
+    order_item_id: null,
+    tracking_id: trackingId,
+    customer_name: payload.customer_name || null,
+    shipping_provider_id: provider?.id || null,
+    status: "Ready to Pack",
+    packed_by: null,
+    imported_at: createdAt,
+    ready_to_pack_at: createdAt,
+    packing_started_at: null,
+    packed_at: null,
+    shipped_at: null,
+    source_file_name: "manual-entry",
+    deduplication_action: "created",
+    created_at: createdAt,
+    updated_at: createdAt,
+    items: (payload.items || []).filter((item) => item.sku).map((item) => ({
+      id: uid(),
+      sku: String(item.sku).trim(),
+      product_name: item.product_name || null,
+      quantity_required: Number(item.quantity_required || 1),
+      quantity_scanned: 0,
+      status: "pending",
+      created_at: createdAt,
+      updated_at: createdAt
+    }))
+  };
+
+  if (order.items.length === 0) throw new Error("At least one valid SKU item is required.");
+  db.orders.unshift(order);
+  return decorateOrder(db, order);
+}
+
+async function localApi(path, options = {}) {
+  const db = readLocalDb();
+  const method = options.method || "GET";
+  const body = options.body && !(options.body instanceof FormData) ? JSON.parse(options.body) : {};
+
+  if (path === "/health") return { ok: true, service: "hillkoff-packing-local" };
+  if (path === "/reference/packers") return { packers: db.packers };
+  if (path === "/reference/shipping-providers") return { shipping_providers: db.providers };
+  if (path === "/demo/reset" && method === "POST") return resetLocalDemo();
+
+  if (path === "/dashboard/summary") {
+    const today = nowIso().slice(0, 10);
+    const active = db.orders.filter((order) => ["Ready to Pack", "Packing In Progress", "Verified", "Packed"].includes(order.status));
+    const byProvider = Object.values(active.reduce((acc, order) => {
+      const provider = decorateOrder(db, order).shipping_provider;
+      acc[provider] = acc[provider] || { shipping_provider: provider, count: 0 };
+      acc[provider].count += 1;
+      return acc;
+    }, {}));
+    return {
+      totals: {
+        ready: db.orders.filter((order) => order.status === "Ready to Pack").length,
+        in_progress: db.orders.filter((order) => order.status === "Packing In Progress").length,
+        packed_today: db.orders.filter((order) => String(order.packed_at || "").startsWith(today)).length,
+        shipped_today: db.orders.filter((order) => String(order.shipped_at || "").startsWith(today)).length,
+        error_scans_today: db.events.filter((event) => event.result === "error" && event.created_at.startsWith(today)).length
+      },
+      by_status: Object.values(db.orders.reduce((acc, order) => {
+        acc[order.status] = acc[order.status] || { status: order.status, count: 0 };
+        acc[order.status].count += 1;
+        return acc;
+      }, {})),
+      by_provider: byProvider
+    };
+  }
+
+  if (path === "/orders/ready") {
+    return {
+      orders: db.orders
+        .filter((order) => ["Ready to Pack", "Packing In Progress", "Verified", "Packed"].includes(order.status))
+        .map((order) => decorateOrder(db, order))
+    };
+  }
+
+  if (path.startsWith("/orders?")) {
+    const params = new URLSearchParams(path.split("?")[1]);
+    const q = String(params.get("q") || "").toLowerCase();
+    const status = params.get("status") || "";
+    const channel = params.get("channel") || "";
+    return {
+      orders: db.orders
+        .filter((order) => !status || order.status === status)
+        .filter((order) => !channel || order.channel === channel)
+        .filter((order) => !q || order.tracking_id.toLowerCase().includes(q) || order.order_key.toLowerCase().includes(q) || String(order.customer_name || "").toLowerCase().includes(q))
+        .map((order) => decorateOrder(db, order))
+    };
+  }
+
+  if (path === "/orders" && method === "POST") {
+    const created = createLocalOrder(db, body);
+    writeLocalDb(db);
+    return orderDetail(db, created.id);
+  }
+
+  if (path.startsWith("/orders/") && method === "GET") {
+    const id = path.split("/")[2];
+    const detail = orderDetail(db, id);
+    if (!detail) throw new Error("Order not found.");
+    return detail;
+  }
+
+  if (path === "/imports/batches") return { batches: db.batches };
+  if (path === "/scan-events") {
+    return {
+      events: db.events.map((event) => {
+        const order = db.orders.find((item) => item.id === event.order_id);
+        const packer = db.packers.find((item) => item.id === event.packer_id);
+        return { ...event, order_key: order?.order_key, tracking_id: order?.tracking_id, packer_name: packer?.display_name };
+      })
+    };
+  }
+
+  if (path === "/packing/session" && method === "POST") {
+    const packer = db.packers.find((item) => item.barcode === body.packer_barcode);
+    if (!packer) throw new Error("Packer barcode not found.");
+    addLocalEvent(db, { packer_id: packer.id, scan_type: "packer", scanned_value: body.packer_barcode, result: "success", message: "Packer identified" });
+    writeLocalDb(db);
+    return { packer_id: packer.id, display_name: packer.display_name };
+  }
+
+  if (path === "/packing/orders/lookup" && method === "POST") {
+    const order = findLocalOrders(db, body.lookup_value)[0];
+    if (!order) {
+      addLocalEvent(db, { packer_id: body.packer_id, scan_type: "order_lookup", scanned_value: body.lookup_value, result: "error", message: "Order not found" });
+      writeLocalDb(db);
+      throw new Error("Order not found.");
+    }
+    const rawOrder = db.orders.find((item) => item.id === order.id);
+    rawOrder.status = rawOrder.status === "Ready to Pack" ? "Packing In Progress" : rawOrder.status;
+    rawOrder.packed_by = rawOrder.packed_by || body.packer_id || null;
+    rawOrder.packing_started_at = rawOrder.packing_started_at || nowIso();
+    rawOrder.updated_at = nowIso();
+    addLocalEvent(db, { order_id: rawOrder.id, packer_id: body.packer_id, scan_type: "order_lookup", scanned_value: body.lookup_value, result: "success", message: "Order loaded" });
+    writeLocalDb(db);
+    return orderDetail(db, rawOrder.id);
+  }
+
+  if (path.includes("/scan-item") && method === "POST") {
+    const orderId = path.split("/")[3];
+    const order = db.orders.find((item) => item.id === orderId);
+    if (!order) throw new Error("Order not found.");
+    const scannedSku = String(body.scanned_sku || "").trim();
+    const item = order.items.find((candidate) => candidate.sku.toUpperCase() === scannedSku.toUpperCase());
+    if (!item) {
+      addLocalEvent(db, { order_id: order.id, packer_id: body.packer_id, scan_type: "item_verify", scanned_value: scannedSku, result: "error", message: "SKU does not match this order" });
+      writeLocalDb(db);
+      throw new Error("SKU does not match this order.");
+    }
+    if (item.quantity_scanned >= item.quantity_required) {
+      addLocalEvent(db, { order_id: order.id, order_item_id: item.id, packer_id: body.packer_id, scan_type: "item_verify", scanned_value: scannedSku, result: "error", message: "Quantity already completed" });
+      writeLocalDb(db);
+      throw new Error("Quantity already completed.");
+    }
+    item.quantity_scanned += 1;
+    item.status = item.quantity_scanned >= item.quantity_required ? "verified" : "partial";
+    item.updated_at = nowIso();
+    order.status = order.items.every((candidate) => candidate.status === "verified") ? "Packed" : "Packing In Progress";
+    order.packed_by = order.packed_by || body.packer_id || null;
+    order.packed_at = order.status === "Packed" ? nowIso() : order.packed_at;
+    order.updated_at = nowIso();
+    addLocalEvent(db, { order_id: order.id, order_item_id: item.id, packer_id: body.packer_id, scan_type: "item_verify", scanned_value: scannedSku, result: "success", message: `${item.quantity_scanned}/${item.quantity_required}` });
+    writeLocalDb(db);
+    return {
+      result: "success",
+      sku: item.sku,
+      quantity_scanned: item.quantity_scanned,
+      quantity_required: item.quantity_required,
+      item_status: item.status,
+      order_status: order.status,
+      order: orderDetail(db, order.id)
+    };
+  }
+
+  if (path === "/dispatch/final-scan" && method === "POST") {
+    const order = findLocalOrders(db, body.tracking_or_order_id)[0];
+    if (!order) throw new Error("Order not found.");
+    const rawOrder = db.orders.find((item) => item.id === order.id);
+    if (!["Packed", "Verified", "Shipped / Handed Over"].includes(rawOrder.status)) throw new Error("Order must be packed before dispatch.");
+    rawOrder.status = "Shipped / Handed Over";
+    rawOrder.shipped_at = rawOrder.shipped_at || nowIso();
+    rawOrder.updated_at = nowIso();
+    const provider = decorateOrder(db, rawOrder).shipping_provider;
+    addLocalEvent(db, { order_id: rawOrder.id, scan_type: "final_dispatch", scanned_value: body.tracking_or_order_id, result: "success", message: provider });
+    writeLocalDb(db);
+    return { order_id: rawOrder.id, status: rawOrder.status, shipping_provider: { display_name: provider }, shipped_at: rawOrder.shipped_at };
+  }
+
+  if (path === "/packers" && method === "POST") {
+    db.packers.push({ id: uid(), employee_code: body.employee_code, barcode: body.barcode || body.employee_code, display_name: body.display_name, active: 1 });
+    writeLocalDb(db);
+    return { packers: db.packers };
+  }
+
+  if (path === "/shipping-providers" && method === "POST") {
+    db.providers.push({ id: uid(), code: String(body.code).toUpperCase(), name: body.name, display_name: body.display_name || body.name, active: 1 });
+    writeLocalDb(db);
+    return { shipping_providers: db.providers };
+  }
+
+  throw new Error("Local mode does not support this action yet.");
 }
 
 function playErrorSound() {

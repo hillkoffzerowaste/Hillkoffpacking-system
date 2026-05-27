@@ -6,6 +6,9 @@ vendor/
 dist/
 build/
 coverage/
+!index.html
+!assets/
+!assets/**
 
 # Environment
 .env

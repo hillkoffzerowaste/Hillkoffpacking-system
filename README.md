@@ -54,6 +54,14 @@ Frontend: http://localhost:5173
 Backend:  http://localhost:4000/api/health
 ```
 
+GitHub Pages:
+
+```text
+https://hillkoffzerowaste.github.io/Hillkoffpacking-system/
+```
+
+On GitHub Pages, the app runs in browser local mode because GitHub Pages cannot run the Express/SQLite backend. Manual order entry, packing scan, dispatch scan, audit log, packers, and shipping providers are stored in the browser's `localStorage`.
+
 Demo scan values:
 
 ```text
