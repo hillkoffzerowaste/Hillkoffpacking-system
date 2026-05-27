@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "build:vercel": "cd ../frontend && npm run build",
+    "build:vercel": "node scripts/build-vercel.js",
     "test": "node --test"
   },
   "dependencies": {
