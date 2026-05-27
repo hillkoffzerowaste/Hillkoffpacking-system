@@ -10,11 +10,13 @@ import {
   FileClock,
   LayoutDashboard,
   PackageCheck,
+  Plus,
   RefreshCw,
   Search,
   Send,
   Settings,
   Truck,
+  Trash2,
   Upload,
   UserRoundPlus,
   Users
@@ -25,6 +27,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:4000/api";
 
 const NAV_ITEMS = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "new-order", label: "New Order", icon: Plus },
   { id: "import", label: "Import", icon: Upload },
   { id: "packing", label: "Packing", icon: PackageCheck },
   { id: "dispatch", label: "Dispatch", icon: Send },
@@ -251,7 +254,146 @@ function ImportPage({ onRefresh }) {
   );
 }
 
-function PackingPage({ onRefresh, readyOrders }) {
+function NewOrderPage({ onRefresh, onGoPacking }) {
+  const emptyItem = { sku: "", product_name: "", quantity_required: 1 };
+  const [providers, setProviders] = useState([]);
+  const [form, setForm] = useState({
+    channel: "reservation",
+    order_key: "",
+    tracking_id: "",
+    customer_name: "",
+    shipping_provider_code: "GENERAL",
+    items: [{ ...emptyItem }]
+  });
+  const [created, setCreated] = useState(null);
+  const [error, setError] = useState("");
+  const orderInputRef = useRef(null);
+
+  useEffect(() => {
+    api("/reference/shipping-providers")
+      .then((data) => setProviders(data.shipping_providers))
+      .catch(() => setProviders([]));
+    orderInputRef.current?.focus();
+  }, []);
+
+  function updateItem(index, patch) {
+    setForm((current) => ({
+      ...current,
+      items: current.items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item)
+    }));
+  }
+
+  function addItem() {
+    setForm((current) => ({ ...current, items: [...current.items, { ...emptyItem }] }));
+  }
+
+  function removeItem(index) {
+    setForm((current) => ({
+      ...current,
+      items: current.items.length === 1 ? current.items : current.items.filter((_, itemIndex) => itemIndex !== index)
+    }));
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    setError("");
+    setCreated(null);
+    try {
+      const payload = {
+        ...form,
+        tracking_id: form.tracking_id || form.order_key,
+        items: form.items.map((item) => ({
+          ...item,
+          quantity_required: Number(item.quantity_required || 1)
+        }))
+      };
+      const data = await api("/orders", { method: "POST", body: JSON.stringify(payload) });
+      setCreated(data);
+      setForm({
+        channel: "reservation",
+        order_key: "",
+        tracking_id: "",
+        customer_name: "",
+        shipping_provider_code: "GENERAL",
+        items: [{ ...emptyItem }]
+      });
+      await onRefresh();
+      setTimeout(() => orderInputRef.current?.focus(), 0);
+    } catch (err) {
+      setError(err.message);
+      playErrorSound();
+    }
+  }
+
+  return (
+    <div className="pageStack">
+      <PageTitle icon={Plus} title="New Order Entry" subtitle="กรอกออเดอร์เองได้ทันที แล้วนำ tracking ไปสแกนแพ็คต่อ" />
+      <section className="panel">
+        <form className="manualOrderForm" onSubmit={submit}>
+          <div className="formGrid">
+            <label>Channel
+              <select value={form.channel} onChange={(event) => setForm({ ...form, channel: event.target.value })}>
+                <option value="reservation">Reservation</option>
+                <option value="shopee">Shopee</option>
+                <option value="lazada">Lazada</option>
+                <option value="tiktok">TikTok</option>
+              </select>
+            </label>
+            <label>Shipping Provider
+              <select value={form.shipping_provider_code} onChange={(event) => setForm({ ...form, shipping_provider_code: event.target.value })}>
+                {providers.map((provider) => <option key={provider.id} value={provider.code}>{provider.display_name}</option>)}
+              </select>
+            </label>
+            <label>Order ID / เลขที่ใบสั่งจอง
+              <input ref={orderInputRef} value={form.order_key} onChange={(event) => setForm({ ...form, order_key: event.target.value })} placeholder="เช่น RSV-5001" />
+            </label>
+            <label>Tracking ID
+              <input value={form.tracking_id} onChange={(event) => setForm({ ...form, tracking_id: event.target.value })} placeholder="เว้นว่างได้ ระบบใช้เลขออเดอร์แทน" />
+            </label>
+            <label className="wide">Customer Name
+              <input value={form.customer_name} onChange={(event) => setForm({ ...form, customer_name: event.target.value })} placeholder="ชื่อลูกค้า" />
+            </label>
+          </div>
+
+          <div className="itemEntryHeader">
+            <h3>Items</h3>
+            <button type="button" className="secondary" onClick={addItem}><Plus size={18} />Add SKU</button>
+          </div>
+
+          <div className="manualItems">
+            {form.items.map((item, index) => (
+              <div className="manualItemRow" key={index}>
+                <label>SKU / Barcode
+                  <input value={item.sku} onChange={(event) => updateItem(index, { sku: event.target.value })} placeholder="ยิงหรือพิมพ์ SKU" />
+                </label>
+                <label>Product Name
+                  <input value={item.product_name} onChange={(event) => updateItem(index, { product_name: event.target.value })} placeholder="ชื่อสินค้า" />
+                </label>
+                <label>Qty
+                  <input type="number" min="1" value={item.quantity_required} onChange={(event) => updateItem(index, { quantity_required: event.target.value })} />
+                </label>
+                <button type="button" className="iconButton" onClick={() => removeItem(index)} aria-label="Remove SKU"><Trash2 size={18} /></button>
+              </div>
+            ))}
+          </div>
+
+          <div className="formActions">
+            <button className="primary"><Plus size={18} />Create Ready Order</button>
+          </div>
+        </form>
+        {error && <Alert type="error">{error}</Alert>}
+        {created && (
+          <Alert>
+            สร้างออเดอร์ {created.order_key} แล้ว สแกนด้วย {created.tracking_id}
+            <button className="inlineAction" onClick={() => onGoPacking(created.tracking_id)}>ไปหน้า Packing</button>
+          </Alert>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function PackingPage({ onRefresh, readyOrders, initialLookup }) {
   const [packers, setPackers] = useState([]);
   const [packer, setPacker] = useState(null);
   const [packerBarcode, setPackerBarcode] = useState("EMP001");
@@ -270,6 +412,10 @@ function PackingPage({ onRefresh, readyOrders }) {
   useEffect(() => {
     if (packer) lookupRef.current?.focus();
   }, [packer]);
+
+  useEffect(() => {
+    if (initialLookup) setLookup(initialLookup);
+  }, [initialLookup]);
 
   async function identifyPacker(event) {
     event.preventDefault();
@@ -707,6 +853,7 @@ function App() {
   const [readyOrders, setReadyOrders] = useState([]);
   const [apiError, setApiError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [packingLookup, setPackingLookup] = useState("");
 
   async function refresh() {
     try {
@@ -741,8 +888,12 @@ function App() {
 
   const page = {
     dashboard: <DashboardPage summary={summary} readyOrders={readyOrders} onDemoReset={resetDemo} busy={busy} />,
+    "new-order": <NewOrderPage onRefresh={refresh} onGoPacking={(trackingId) => {
+      setPackingLookup(trackingId);
+      setActivePage("packing");
+    }} />,
     import: <ImportPage onRefresh={refresh} />,
-    packing: <PackingPage readyOrders={readyOrders} onRefresh={refresh} />,
+    packing: <PackingPage readyOrders={readyOrders} onRefresh={refresh} initialLookup={packingLookup} />,
     dispatch: <DispatchPage onRefresh={refresh} />,
     orders: <OrdersPage onRefresh={refresh} />,
     audit: <AuditPage />,

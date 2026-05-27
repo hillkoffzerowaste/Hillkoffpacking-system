@@ -309,6 +309,65 @@ input:disabled {
   margin: 16px 0;
 }
 
+.manualOrderForm {
+  display: grid;
+  gap: 18px;
+}
+
+.itemEntryHeader {
+  align-items: center;
+  border-top: 1px solid #dce4d8;
+  display: flex;
+  justify-content: space-between;
+  padding-top: 16px;
+}
+
+.itemEntryHeader h3 {
+  font-size: 17px;
+  margin: 0;
+}
+
+.manualItems {
+  display: grid;
+  gap: 10px;
+}
+
+.manualItemRow {
+  align-items: end;
+  background: #f8faf6;
+  border: 1px solid #dce4d8;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) 92px 42px;
+  padding: 12px;
+}
+
+.iconButton {
+  align-items: center;
+  background: #ffe8e4;
+  border-radius: 6px;
+  color: #a72816;
+  display: inline-flex;
+  height: 42px;
+  justify-content: center;
+  width: 42px;
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.inlineAction {
+  background: #176543;
+  border-radius: 5px;
+  color: #fff;
+  font-weight: 900;
+  margin-left: 10px;
+  padding: 7px 10px;
+}
+
 .notice {
   align-items: center;
   border-radius: 7px;
@@ -651,6 +710,7 @@ dd {
   .filterBar,
   .dispatchForm,
   .orderHero,
+  .manualItemRow,
   .resultGrid {
     grid-template-columns: 1fr;
   }

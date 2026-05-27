@@ -7,6 +7,7 @@
 | Screen | Purpose |
 |---|---|
 | Dashboard | ดูคิวงาน สถานะรวม และจำนวนต่อขนส่ง |
+| New Order | กรอกออเดอร์เอง เพิ่ม SKU/จำนวน และสร้างเป็น Ready to Pack |
 | Import | อัปโหลด CSV/XLSX และตรวจผล deduplication |
 | Packing | สแกนพนักงาน สแกนใบปะหน้า และสแกน SKU |
 | Dispatch | สแกนรอบสุดท้ายและแสดงโซนขนส่ง |
@@ -29,9 +30,9 @@
 ## Backend Endpoints Added For Full App
 
 - `GET /api/dashboard/summary`
+- `POST /api/orders`
 - `GET /api/orders`
 - `GET /api/imports/batches`
 - `POST /api/packers`
 - `POST /api/shipping-providers`
 - `GET /api/scan-events`
-

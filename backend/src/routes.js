@@ -160,6 +160,91 @@ router.get("/orders/ready", (_req, res) => {
   res.json({ orders });
 });
 
+router.post("/orders", (req, res) => {
+  const channel = String(req.body.channel || "reservation").trim();
+  const orderKey = String(req.body.order_key || "").trim();
+  const trackingId = String(req.body.tracking_id || orderKey).trim();
+  const customerName = String(req.body.customer_name || "").trim();
+  const shippingProviderCode = String(req.body.shipping_provider_code || "GENERAL").trim().toUpperCase();
+  const items = Array.isArray(req.body.items) ? req.body.items : [];
+
+  if (!orderKey || !trackingId) {
+    res.status(400).json({ code: "ORDER_FIELDS_REQUIRED", message: "Order key and tracking id are required." });
+    return;
+  }
+
+  const validItems = items
+    .map((item) => ({
+      sku: String(item.sku || "").trim(),
+      productName: String(item.product_name || "").trim(),
+      quantityRequired: Number.parseInt(String(item.quantity_required || "1"), 10)
+    }))
+    .filter((item) => item.sku && Number.isFinite(item.quantityRequired) && item.quantityRequired > 0);
+
+  if (validItems.length === 0) {
+    res.status(400).json({ code: "ORDER_ITEMS_REQUIRED", message: "At least one valid SKU item is required." });
+    return;
+  }
+
+  const duplicate = db.prepare(`
+    select id
+    from orders
+    where tracking_id = @trackingId
+       or (channel = @channel and order_key = @orderKey)
+    limit 1
+  `).get({ trackingId, channel, orderKey });
+
+  if (duplicate) {
+    res.status(409).json({ code: "DUPLICATE_ORDER", message: "Order or tracking already exists." });
+    return;
+  }
+
+  const provider = db.prepare("select * from shipping_providers where code = ? and active = 1").get(shippingProviderCode)
+    || db.prepare("select * from shipping_providers where code = 'GENERAL' and active = 1").get();
+
+  const now = nowIso();
+  const orderId = nanoid();
+  const transaction = db.transaction(() => {
+    db.prepare(`
+      insert into orders
+        (id, channel, order_key, tracking_id, customer_name, shipping_provider_id, status,
+         imported_at, ready_to_pack_at, source_file_name, deduplication_action, created_at, updated_at)
+      values
+        (@id, @channel, @orderKey, @trackingId, @customerName, @shippingProviderId, 'Ready to Pack',
+         @now, @now, 'manual-entry', 'created', @now, @now)
+    `).run({
+      id: orderId,
+      channel,
+      orderKey,
+      trackingId,
+      customerName: customerName || null,
+      shippingProviderId: provider?.id || null,
+      now
+    });
+
+    const insertItem = db.prepare(`
+      insert into order_items
+        (id, order_id, sku, product_name, quantity_required, quantity_scanned, status, created_at, updated_at)
+      values
+        (@id, @orderId, @sku, @productName, @quantityRequired, 0, 'pending', @now, @now)
+    `);
+
+    for (const item of validItems) {
+      insertItem.run({
+        id: nanoid(),
+        orderId,
+        sku: item.sku,
+        productName: item.productName || null,
+        quantityRequired: item.quantityRequired,
+        now
+      });
+    }
+  });
+
+  transaction();
+  res.status(201).json(getOrderDetail(orderId));
+});
+
 router.get("/imports/batches", (_req, res) => {
   const batches = db.prepare(`
     select *
@@ -280,7 +365,7 @@ router.post("/packing/orders/:id/scan-item", (req, res) => {
     return;
   }
 
-  const item = order.items.find((candidate) => candidate.sku === scannedSku);
+  const item = order.items.find((candidate) => candidate.sku.toUpperCase() === scannedSku.toUpperCase());
   if (!item) {
     createScanEvent({
       orderId: order.id,

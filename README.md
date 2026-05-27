@@ -68,12 +68,21 @@ Sample import files are available in `imports/`.
 ### Application Screens
 
 - Dashboard: real-time operation metrics and shipping queue
+- New Order: manual order entry with multiple SKU lines
 - Import: marketplace/reservation file import and import history
 - Packing: packer identification, order lookup, and SKU scan validation
 - Dispatch: final scan with large shipping route display
 - Orders: searchable order control center and item detail
 - Audit: scan event log for troubleshooting
 - Settings: packer and shipping provider setup
+
+Manual order workflow:
+
+```text
+New Order -> enter order/tracking/customer -> add SKU and quantity -> Create Ready Order
+Packing -> identify packer -> scan tracking -> scan each SKU by quantity
+Dispatch -> scan tracking again -> route is displayed
+```
 
 Current app screen:
 
