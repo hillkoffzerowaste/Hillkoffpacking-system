@@ -50,15 +50,99 @@ const LOCAL_STORE_KEY = "hillkoff-packing-local-db-v1";
 const DATA_MODE = import.meta.env.VITE_DATA_MODE || "api";
 
 const NAV_ITEMS = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "new-order", label: "New Order", icon: Plus },
-  { id: "import", label: "Import", icon: Upload },
-  { id: "packing", label: "Packing", icon: PackageCheck },
-  { id: "dispatch", label: "Dispatch", icon: Send },
-  { id: "orders", label: "Orders", icon: ClipboardList },
-  { id: "audit", label: "Audit", icon: FileClock },
-  { id: "settings", label: "Settings", icon: Settings }
+  { id: "dashboard", label: "ภาพรวมงาน", icon: LayoutDashboard },
+  { id: "import", label: "1. นำเข้าออเดอร์", icon: Upload },
+  { id: "new-order", label: "2. เพิ่มออเดอร์เอง", icon: Plus },
+  { id: "packing", label: "3. แพ็คสินค้า", icon: PackageCheck },
+  { id: "dispatch", label: "4. ส่งมอบขนส่ง", icon: Send },
+  { id: "orders", label: "รายการออเดอร์", icon: ClipboardList },
+  { id: "audit", label: "ประวัติสแกน", icon: FileClock },
+  { id: "settings", label: "ตั้งค่า", icon: Settings }
 ];
+
+const TITLE_LABELS = {
+  "Operations Dashboard": "ภาพรวมงานวันนี้",
+  "Import Orders": "1. นำเข้าออเดอร์",
+  "New Order Entry": "2. เพิ่มออเดอร์เอง",
+  "Packing Station": "3. แพ็คสินค้า",
+  "Final Sorting & Dispatch": "4. ส่งมอบขนส่ง",
+  "Order Control Center": "รายการออเดอร์",
+  "Scan Audit": "ประวัติการสแกน",
+  Settings: "ตั้งค่า"
+};
+
+const SUBTITLE_LABELS = {
+  "Operations Dashboard": "ดูจำนวนออเดอร์ที่รอแพ็ค กำลังแพ็ค แพ็คเสร็จ และส่งมอบขนส่งแล้ว",
+  "Import Orders": "แปลงไฟล์เป็น CSV ตรวจข้อมูล แล้วนำเข้าเป็นออเดอร์พร้อมแพ็ค",
+  "New Order Entry": "ใช้สำหรับใบสั่งจองหรือออเดอร์ที่ไม่มีไฟล์นำเข้า กรอกแล้วส่งต่อไปหน้าแพ็ค",
+  "Packing Station": "สแกนพนักงาน สแกนใบปะหน้า แล้วสแกน SKU ทีละชิ้นให้ครบจำนวน",
+  "Final Sorting & Dispatch": "สแกนกล่องที่ปิดแล้ว ระบบจะแสดงโซนขนส่งและเปลี่ยนสถานะเป็นส่งมอบแล้ว",
+  "Order Control Center": "ค้นหา ตรวจสถานะ และเปิดดูรายละเอียดออเดอร์ทั้งหมด",
+  "Scan Audit": "ดูย้อนหลังว่าใครสแกนอะไร ผ่านหรือไม่ผ่าน ใช้ตรวจปัญหาได้",
+  Settings: "จัดการพนักงานแพ็คและรายชื่อขนส่งที่ใช้ในระบบ"
+};
+
+const STATUS_LABELS = {
+  "Ready to Pack": "รอแพ็ค",
+  "Packing In Progress": "กำลังแพ็ค",
+  Packed: "แพ็คเสร็จ",
+  Verified: "ตรวจครบแล้ว",
+  "Shipped / Handed Over": "ส่งมอบขนส่งแล้ว",
+  pending: "รอสแกน",
+  partial: "สแกนบางส่วน",
+  verified: "ครบแล้ว",
+  completed: "สำเร็จ",
+  completed_with_errors: "สำเร็จบางส่วน"
+};
+
+const CHANNEL_LABELS = {
+  shopee: "Shopee",
+  lazada: "Lazada",
+  tiktok: "TikTok",
+  reservation: "ใบสั่งจอง/ออเดอร์ทั่วไป",
+  mixed: "หลายช่องทาง"
+};
+
+const SCAN_TYPE_LABELS = {
+  packer: "ระบุคนแพ็ค",
+  order_lookup: "ค้นหาออเดอร์",
+  item_verify: "ตรวจสินค้า",
+  final_dispatch: "ยืนยันส่งออก"
+};
+
+const RESULT_LABELS = {
+  success: "ผ่าน",
+  error: "ไม่ผ่าน"
+};
+
+function hasBrokenThai(text) {
+  return /เธ|เน|โ|ยท/.test(String(text || ""));
+}
+
+function statusLabel(status) {
+  return STATUS_LABELS[status] || status || "-";
+}
+
+function channelLabel(channel) {
+  return CHANNEL_LABELS[channel] || channel || "-";
+}
+
+function translateMessage(message) {
+  const text = String(message || "");
+  const exact = {
+    "Order not found.": "ไม่พบออเดอร์",
+    "Packer barcode not found.": "ไม่พบรหัสพนักงานแพ็ค",
+    "SKU does not match this order.": "SKU ไม่ตรงกับออเดอร์นี้",
+    "Quantity already completed.": "จำนวนสินค้ารายการนี้สแกนครบแล้ว",
+    "Order must be packed before dispatch.": "ต้องแพ็คสินค้าให้ครบก่อนส่งมอบขนส่ง",
+    "At least one valid SKU item is required.": "ต้องมีสินค้าอย่างน้อย 1 รายการ",
+    "Order key and tracking id are required.": "กรุณากรอกเลขออเดอร์และเลขพัสดุ",
+    "Order or tracking already exists.": "ออเดอร์หรือเลขพัสดุนี้มีอยู่แล้ว"
+  };
+  return exact[text] || text
+    .replace("Row", "แถวที่")
+    .replace("missing order, tracking, or sku", "ขาดเลขออเดอร์ เลขพัสดุ หรือ SKU");
+}
 
 async function api(path, options = {}) {
   if (DATA_MODE === "firebase") {
@@ -483,18 +567,20 @@ function formatDate(value) {
 
 function StatusBadge({ status }) {
   const key = String(status || "").toLowerCase().replaceAll(" ", "-").replaceAll("/", "");
-  return <span className={`badge ${key}`}>{status || "-"}</span>;
+  return <span className={`badge ${key}`}>{statusLabel(status)}</span>;
 }
 
 function PageTitle({ icon: Icon, title, subtitle, action }) {
+  const displayTitle = TITLE_LABELS[title] || title;
+  const displaySubtitle = SUBTITLE_LABELS[title] || (hasBrokenThai(subtitle) ? "" : subtitle);
   return (
     <div className="pageTitle">
       <div>
         <div className="titleLine">
           <Icon size={24} />
-          <h2>{title}</h2>
+          <h2>{displayTitle}</h2>
         </div>
-        <p>{subtitle}</p>
+        <p>{displaySubtitle}</p>
       </div>
       {action}
     </div>
@@ -503,7 +589,7 @@ function PageTitle({ icon: Icon, title, subtitle, action }) {
 
 function Alert({ type = "success", children }) {
   const Icon = type === "error" ? AlertTriangle : CheckCircle2;
-  return <div className={`notice ${type}`}><Icon size={18} />{children}</div>;
+  return <div className={`notice ${type}`}><Icon size={18} />{typeof children === "string" ? translateMessage(children) : children}</div>;
 }
 
 function ScannerField({
@@ -514,7 +600,7 @@ function ScannerField({
   placeholder,
   disabled,
   onSubmit,
-  buttonLabel = "Scan"
+  buttonLabel = "สแกน"
 }) {
   function focusScanner() {
     inputRef?.current?.focus();
@@ -565,7 +651,7 @@ function CameraScanner({ title, onResult, onClose }) {
           onClose();
         });
       } catch (err) {
-        setError(err.message || "Cannot open camera.");
+        setError(err.message || "เปิดกล้องไม่ได้");
       }
     }
 
@@ -582,9 +668,9 @@ function CameraScanner({ title, onResult, onClose }) {
         <div className="cameraHeader">
           <div>
             <strong>{title}</strong>
-            <span>Point the camera at a barcode or QR code.</span>
+            <span>เล็งกล้องไปที่บาร์โค้ดหรือ QR Code</span>
           </div>
-          <button type="button" className="secondary" onClick={onClose}>Close</button>
+          <button type="button" className="secondary" onClick={onClose}>ปิด</button>
         </div>
         <div className="cameraFrame">
           <video ref={videoRef} muted playsInline />
@@ -612,20 +698,20 @@ function DashboardPage({ summary, readyOrders, onDemoReset, busy }) {
         icon={LayoutDashboard}
         title="Operations Dashboard"
         subtitle="ภาพรวมงานนำเข้า แพ็ค และจัดส่งแบบ real time"
-        action={<button className="primary" disabled={busy} onClick={onDemoReset}><Archive size={18} />Load Demo</button>}
+        action={<button className="primary" disabled={busy} onClick={onDemoReset}><Archive size={18} />โหลดข้อมูลตัวอย่าง</button>}
       />
 
       <div className="metricsGrid">
-        <Metric label="Ready to Pack" value={summary?.totals?.ready} />
-        <Metric label="In Progress" value={summary?.totals?.in_progress} tone="warn" />
-        <Metric label="Packed Today" value={summary?.totals?.packed_today} tone="ok" />
-        <Metric label="Shipped Today" value={summary?.totals?.shipped_today} tone="ok" />
-        <Metric label="Scan Errors Today" value={summary?.totals?.error_scans_today} tone="danger" />
+        <Metric label="รอแพ็ค" value={summary?.totals?.ready} />
+        <Metric label="กำลังแพ็ค" value={summary?.totals?.in_progress} tone="warn" />
+        <Metric label="แพ็คเสร็จวันนี้" value={summary?.totals?.packed_today} tone="ok" />
+        <Metric label="ส่งออกวันนี้" value={summary?.totals?.shipped_today} tone="ok" />
+        <Metric label="สแกนผิดวันนี้" value={summary?.totals?.error_scans_today} tone="danger" />
       </div>
 
       <div className="contentGrid two">
         <section className="panel">
-          <div className="panelHeader"><Truck size={20} /><h3>Shipping Queue</h3></div>
+          <div className="panelHeader"><Truck size={20} /><h3>คิวแยกตามขนส่ง</h3></div>
           <div className="routeList">
             {(summary?.by_provider || []).map((row) => (
               <div className="routeRow" key={row.shipping_provider}>
@@ -638,7 +724,7 @@ function DashboardPage({ summary, readyOrders, onDemoReset, busy }) {
         </section>
 
         <section className="panel">
-          <div className="panelHeader"><Boxes size={20} /><h3>Latest Work Queue</h3></div>
+          <div className="panelHeader"><Boxes size={20} /><h3>ออเดอร์ที่รอทำงาน</h3></div>
           <div className="compactOrders">
             {readyOrders.slice(0, 8).map((order) => (
               <div className="compactOrder" key={order.id}>
@@ -705,7 +791,7 @@ function ImportPage({ onRefresh }) {
 
   async function convertSelectedFile() {
     if (!file) {
-      setConvertError("Please choose a document before converting.");
+      setConvertError("กรุณาเลือกไฟล์ก่อนแปลง");
       return;
     }
 
@@ -758,9 +844,9 @@ function ImportPage({ onRefresh }) {
       <PageTitle icon={Upload} title="Import Orders" subtitle="นำเข้าไฟล์จาก marketplace และใบสั่งจอง พร้อมตรวจออเดอร์ซ้ำ" />
       <div className="contentGrid two">
         <section className="panel">
-          <div className="panelHeader"><Upload size={20} /><h3>New Import</h3></div>
+          <div className="panelHeader"><Upload size={20} /><h3>เลือกไฟล์และแปลงข้อมูล</h3></div>
           <form className="formGrid" onSubmit={submit}>
-            <label>Channel
+            <label>ช่องทางออเดอร์
               <select value={channel} onChange={(event) => selectChannel(event.target.value)}>
                 <option value="shopee">Shopee</option>
                 <option value="lazada">Lazada</option>
@@ -768,22 +854,22 @@ function ImportPage({ onRefresh }) {
                 <option value="reservation">ใบสั่งจองทั่วไป</option>
               </select>
             </label>
-            <label>Deduplication
+            <label>เมื่อเจอออเดอร์ซ้ำ
               <select value={dedupe} onChange={(event) => setDedupe(event.target.value)}>
-                <option value="ignore">Ignore duplicate</option>
-                <option value="overwrite">Overwrite duplicate</option>
+                <option value="ignore">ข้ามรายการซ้ำ</option>
+                <option value="overwrite">เขียนทับรายการเดิม</option>
               </select>
             </label>
-            <label className="wide">Import File
+            <label className="wide">ไฟล์ออเดอร์
               <input type="file" accept=".csv,.xlsx,.xls,.xps,.oxps" onChange={(event) => selectFile(event.target.files?.[0] || null)} />
             </label>
             <div className="wide converterBox">
               <div>
-                <strong>Convert document to CSV</strong>
-                <span>{convertedFile ? `${convertedFile.name} ready (${convertedRows.length} rows)` : "Excel/XPS will be converted to CSV before import."}</span>
+                <strong>แปลงไฟล์เป็น CSV ก่อนนำเข้า</strong>
+                <span>{convertedFile ? `${convertedFile.name} พร้อมนำเข้า (${convertedRows.length} แถว)` : "ระบบจะแปลง Excel/XPS เป็น CSV แล้วแสดงตัวอย่างก่อนนำเข้า"}</span>
               </div>
               <button type="button" className="secondary" disabled={busy || converting || !file} onClick={convertSelectedFile}>
-                <FileClock size={18} />{converting ? "Converting..." : "Convert"}
+                <FileClock size={18} />{converting ? "กำลังแปลง..." : "แปลงไฟล์"}
               </button>
             </div>
             {convertError && <div className="wide"><Alert type="error">{convertError}</Alert></div>}
@@ -792,36 +878,36 @@ function ImportPage({ onRefresh }) {
                 <DataTable
                   columns={previewColumns}
                   rows={convertedRows.slice(0, 5).map((row) => previewColumns.map((column) => row[column] || ""))}
-                  empty="No converted rows"
+                  empty="ยังไม่มีข้อมูลที่แปลงแล้ว"
                 />
               </div>
             )}
-            <button className="primary" disabled={busy}><Upload size={18} />{convertedFile ? "Import CSV" : "Import"}</button>
+            <button className="primary" disabled={busy}><Upload size={18} />{convertedFile ? "นำเข้า CSV" : "นำเข้า"}</button>
           </form>
           {error && <Alert type="error">{error}</Alert>}
           {result && (
             <div className="resultGrid">
-              <Metric label="Rows" value={result.total_rows} />
-              <Metric label="Created" value={result.created_count} tone="ok" />
-              <Metric label="Ignored" value={result.ignored_count} />
-              <Metric label="Overwritten" value={result.overwritten_count} tone="warn" />
-              <Metric label="Errors" value={result.error_count} tone="danger" />
+              <Metric label="จำนวนแถว" value={result.total_rows} />
+              <Metric label="สร้างใหม่" value={result.created_count} tone="ok" />
+              <Metric label="ข้ามซ้ำ" value={result.ignored_count} />
+              <Metric label="เขียนทับ" value={result.overwritten_count} tone="warn" />
+              <Metric label="ผิดพลาด" value={result.error_count} tone="danger" />
             </div>
           )}
         </section>
 
         <section className="panel">
-          <div className="panelHeader"><FileClock size={20} /><h3>Import History</h3></div>
+          <div className="panelHeader"><FileClock size={20} /><h3>ประวัติการนำเข้า</h3></div>
           <DataTable
-            columns={["File", "Channel", "Rows", "Created", "Ignored", "Overwritten", "Status"]}
+            columns={["ไฟล์", "ช่องทาง", "แถว", "สร้างใหม่", "ข้ามซ้ำ", "เขียนทับ", "สถานะ"]}
             rows={batches.map((batch) => [
               batch.file_name,
-              batch.channel,
+              channelLabel(batch.channel),
               batch.total_rows,
               batch.created_count,
               batch.ignored_count,
               batch.overwritten_count,
-              batch.status
+              statusLabel(batch.status)
             ])}
             empty="ยังไม่มีประวัติการนำเข้า"
           />
@@ -911,24 +997,24 @@ function NewOrderPage({ onRefresh, onGoPacking }) {
       <section className="panel">
         <form className="manualOrderForm" onSubmit={submit}>
           <div className="scanHelperBar">
-            <span><Barcode size={18} />Barcode scan shortcuts</span>
-            <button type="button" className="scanModeButton" onClick={() => orderInputRef.current?.focus()}>Scan Order</button>
-            <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "Camera Scan Order", apply: (value) => setForm((current) => ({ ...current, order_key: value })) })}><Camera size={18} />Camera Order</button>
-            <button type="button" className="scanModeButton" onClick={() => document.querySelectorAll(".formGrid input")[1]?.focus()}>Scan Label</button>
-            <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "Camera Scan Shipping Label", apply: (value) => setForm((current) => ({ ...current, tracking_id: value })) })}><Camera size={18} />Camera Label</button>
-            <button type="button" className="scanModeButton" onClick={() => document.querySelector(".manualItemRow input")?.focus()}>Scan SKU</button>
-            <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "Camera Scan SKU", apply: (value) => updateItem(0, { sku: value }) })}><Camera size={18} />Camera SKU</button>
+            <span><Barcode size={18} />ปุ่มลัดสำหรับสแกน</span>
+            <button type="button" className="scanModeButton" onClick={() => orderInputRef.current?.focus()}>สแกนเลขออเดอร์</button>
+            <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "ใช้กล้องสแกนออเดอร์", apply: (value) => setForm((current) => ({ ...current, order_key: value })) })}><Camera size={18} />ใช้กล้องสแกนออเดอร์</button>
+            <button type="button" className="scanModeButton" onClick={() => document.querySelectorAll(".formGrid input")[1]?.focus()}>สแกนใบปะหน้า</button>
+            <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "ใช้กล้องสแกนใบปะหน้า", apply: (value) => setForm((current) => ({ ...current, tracking_id: value })) })}><Camera size={18} />ใช้กล้องสแกนใบปะหน้า</button>
+            <button type="button" className="scanModeButton" onClick={() => document.querySelector(".manualItemRow input")?.focus()}>สแกน SKU</button>
+            <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "ใช้กล้องสแกน SKU", apply: (value) => updateItem(0, { sku: value }) })}><Camera size={18} />ใช้กล้องสแกน SKU</button>
           </div>
           <div className="formGrid">
-            <label>Channel
+            <label>ช่องทางออเดอร์
               <select value={form.channel} onChange={(event) => setForm({ ...form, channel: event.target.value })}>
-                <option value="reservation">Reservation</option>
+                <option value="reservation">ใบสั่งจอง/ออเดอร์ทั่วไป</option>
                 <option value="shopee">Shopee</option>
                 <option value="lazada">Lazada</option>
                 <option value="tiktok">TikTok</option>
               </select>
             </label>
-            <label>Shipping Provider
+            <label>ขนส่ง
               <select value={form.shipping_provider_code} onChange={(event) => setForm({ ...form, shipping_provider_code: event.target.value })}>
                 {providers.map((provider) => <option key={provider.id} value={provider.code}>{provider.display_name}</option>)}
               </select>
@@ -936,42 +1022,42 @@ function NewOrderPage({ onRefresh, onGoPacking }) {
             <label>Order ID / เลขที่ใบสั่งจอง
               <input ref={orderInputRef} value={form.order_key} onChange={(event) => setForm({ ...form, order_key: event.target.value })} placeholder="เช่น RSV-5001" />
             </label>
-            <label>Tracking ID
+            <label>เลขพัสดุ / Tracking
               <input value={form.tracking_id} onChange={(event) => setForm({ ...form, tracking_id: event.target.value })} placeholder="เว้นว่างได้ ระบบใช้เลขออเดอร์แทน" />
             </label>
-            <label className="wide">Customer Name
+            <label className="wide">ชื่อลูกค้า
               <input value={form.customer_name} onChange={(event) => setForm({ ...form, customer_name: event.target.value })} placeholder="ชื่อลูกค้า" />
             </label>
           </div>
 
           <div className="itemEntryHeader">
-            <h3>Items</h3>
+            <h3>รายการสินค้า</h3>
             <div className="inlineButtonGroup">
-              <button type="button" className="secondary" onClick={() => document.querySelector(".manualItemRow input")?.focus()}><Barcode size={18} />Scan SKU</button>
-              <button type="button" className="secondary" onClick={addItem}><Plus size={18} />Add SKU</button>
+              <button type="button" className="secondary" onClick={() => document.querySelector(".manualItemRow input")?.focus()}><Barcode size={18} />สแกน SKU</button>
+              <button type="button" className="secondary" onClick={addItem}><Plus size={18} />เพิ่มสินค้า</button>
             </div>
           </div>
 
           <div className="manualItems">
             {form.items.map((item, index) => (
               <div className="manualItemRow" key={index}>
-                <label>SKU / Barcode
+                <label>SKU / บาร์โค้ดสินค้า
                   <input value={item.sku} onChange={(event) => updateItem(index, { sku: event.target.value })} placeholder="ยิงหรือพิมพ์ SKU" />
                 </label>
-                <label>Product Name
+                <label>ชื่อสินค้า
                   <input value={item.product_name} onChange={(event) => updateItem(index, { product_name: event.target.value })} placeholder="ชื่อสินค้า" />
                 </label>
-                <label>Qty
+                <label>จำนวน
                   <input type="number" min="1" value={item.quantity_required} onChange={(event) => updateItem(index, { quantity_required: event.target.value })} />
                 </label>
-                <button type="button" className="iconButton cameraIcon" onClick={() => setCameraTarget({ title: "Camera Scan SKU", apply: (value) => updateItem(index, { sku: value }) })} aria-label="Camera Scan SKU"><Camera size={18} /></button>
+                <button type="button" className="iconButton cameraIcon" onClick={() => setCameraTarget({ title: "ใช้กล้องสแกน SKU", apply: (value) => updateItem(index, { sku: value }) })} aria-label="ใช้กล้องสแกน SKU"><Camera size={18} /></button>
                 <button type="button" className="iconButton" onClick={() => removeItem(index)} aria-label="Remove SKU"><Trash2 size={18} /></button>
               </div>
             ))}
           </div>
 
           <div className="formActions">
-            <button className="primary"><Plus size={18} />Create Ready Order</button>
+            <button className="primary"><Plus size={18} />บันทึกออเดอร์พร้อมแพ็ค</button>
           </div>
         </form>
         {error && <Alert type="error">{error}</Alert>}
@@ -1085,47 +1171,47 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
       <PageTitle icon={PackageCheck} title="Packing Station" subtitle="สแกนใบปะหน้า ดึงออเดอร์ และตรวจ SKU ทีละชิ้น" />
       <div className="contentGrid stationGrid">
         <section className="panel stationPanel">
-          <div className="panelHeader"><Users size={20} /><h3>Packer Identification</h3></div>
+          <div className="panelHeader"><Users size={20} /><h3>ระบุคนแพ็ค</h3></div>
           <div className="scanHelperBar">
-            <span><Barcode size={18} />Scan workflow</span>
-            <button type="button" className="scanModeButton" onClick={() => packerRef.current?.focus()}>Scan Packer</button>
-            <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "Camera Scan Packer", apply: setPackerBarcode })}><Camera size={18} />Camera Packer</button>
-            <button type="button" className="scanModeButton" disabled={!packer} onClick={() => lookupRef.current?.focus()}>Scan Label</button>
-            <button type="button" className="scanModeButton camera" disabled={!packer} onClick={() => setCameraTarget({ title: "Camera Scan Shipping Label", apply: setLookup })}><Camera size={18} />Camera Label</button>
-            <button type="button" className="scanModeButton" disabled={!order} onClick={() => skuRef.current?.focus()}>Scan SKU</button>
-            <button type="button" className="scanModeButton camera" disabled={!order} onClick={() => setCameraTarget({ title: "Camera Scan SKU", apply: setSku })}><Camera size={18} />Camera SKU</button>
+            <span><Barcode size={18} />ลำดับการสแกน</span>
+            <button type="button" className="scanModeButton" onClick={() => packerRef.current?.focus()}>1. สแกนพนักงาน</button>
+            <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "ใช้กล้องสแกนพนักงาน", apply: setPackerBarcode })}><Camera size={18} />กล้องพนักงาน</button>
+            <button type="button" className="scanModeButton" disabled={!packer} onClick={() => lookupRef.current?.focus()}>2. สแกนใบปะหน้า</button>
+            <button type="button" className="scanModeButton camera" disabled={!packer} onClick={() => setCameraTarget({ title: "ใช้กล้องสแกนใบปะหน้า", apply: setLookup })}><Camera size={18} />กล้องใบปะหน้า</button>
+            <button type="button" className="scanModeButton" disabled={!order} onClick={() => skuRef.current?.focus()}>3. สแกน SKU</button>
+            <button type="button" className="scanModeButton camera" disabled={!order} onClick={() => setCameraTarget({ title: "ใช้กล้องสแกน SKU", apply: setSku })}><Camera size={18} />กล้อง SKU</button>
           </div>
           <form className="inlineForm" onSubmit={identifyPacker}>
-            <label>Packer Barcode
+            <label>รหัสพนักงานแพ็ค
               <input ref={packerRef} value={packerBarcode} onChange={(event) => setPackerBarcode(event.target.value)} list="packer-list" />
               <datalist id="packer-list">
                 {packers.map((item) => <option key={item.id} value={item.barcode}>{item.display_name}</option>)}
               </datalist>
             </label>
-            <button className="primary"><Barcode size={18} />Identify</button>
+            <button className="primary"><Barcode size={18} />ยืนยันพนักงาน</button>
           </form>
 
           <div className="divider" />
 
           <form className="inlineForm" onSubmit={loadOrder}>
-            <label>Order / Tracking / Customer
+            <label>ค้นหาออเดอร์ / เลขพัสดุ / ลูกค้า
               <input ref={lookupRef} value={lookup} onChange={(event) => setLookup(event.target.value)} disabled={!packer} placeholder="เช่น SPX-TRACK-1001" />
             </label>
-            <button className="primary" disabled={!packer}><Search size={18} />Load</button>
+            <button className="primary" disabled={!packer}><Search size={18} />โหลดออเดอร์</button>
           </form>
 
           {order && (
             <div className="packingWorkspace">
               <div className="orderHero">
-                <div><span>Order</span><strong>{order.order_key}</strong></div>
-                <div><span>Tracking</span><strong>{order.tracking_id}</strong></div>
-                <div><span>Progress</span><strong>{progress}%</strong></div>
+                <div><span>ออเดอร์</span><strong>{order.order_key}</strong></div>
+                <div><span>เลขพัสดุ</span><strong>{order.tracking_id}</strong></div>
+                <div><span>ความคืบหน้า</span><strong>{progress}%</strong></div>
               </div>
               <form className="scanForm" onSubmit={scanSku}>
-                <label>Scan SKU
+                <label>สแกน SKU สินค้า
                   <input ref={skuRef} value={sku} onChange={(event) => setSku(event.target.value)} placeholder="ยิง barcode สินค้า" />
                 </label>
-                <button className="primary"><Barcode size={18} />Scan</button>
+                <button className="primary"><Barcode size={18} />สแกน</button>
               </form>
               <div className="itemList">
                 {order.items.map((item) => (
@@ -1154,7 +1240,7 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
         </section>
 
         <section className="panel sideQueue">
-          <div className="panelHeader"><ClipboardList size={20} /><h3>Ready Queue</h3></div>
+          <div className="panelHeader"><ClipboardList size={20} /><h3>คิวรอแพ็ค</h3></div>
           <div className="queueList">
             {readyOrders.slice(0, 12).map((item) => (
               <button className="queueItem" key={item.id} onClick={() => setLookup(item.tracking_id)}>
@@ -1204,15 +1290,15 @@ function DispatchPage({ onRefresh }) {
       <PageTitle icon={Send} title="Final Sorting & Dispatch" subtitle="สแกนกล่องที่ปิดแล้วเพื่อยืนยันพร้อมส่ง และแสดงโซนขนส่ง" />
       <section className="dispatchStage">
         <div className="scanHelperBar dark">
-          <span><Barcode size={18} />Ready for barcode scanner</span>
-          <button type="button" className="scanModeButton" onClick={() => inputRef.current?.focus()}>Scan Final Label</button>
-          <button type="button" className="scanModeButton camera" onClick={() => setCameraOpen(true)}><Camera size={18} />Camera Final Label</button>
+          <span><Barcode size={18} />พร้อมรับเครื่องสแกนบาร์โค้ด</span>
+          <button type="button" className="scanModeButton" onClick={() => inputRef.current?.focus()}>สแกนใบปะหน้ารอบสุดท้าย</button>
+          <button type="button" className="scanModeButton camera" onClick={() => setCameraOpen(true)}><Camera size={18} />ใช้กล้องสแกน</button>
         </div>
         <form className="dispatchForm" onSubmit={dispatch}>
-          <label>Final Shipping Label Scan
+          <label>สแกนใบปะหน้าขนส่ง
             <input ref={inputRef} value={lookup} onChange={(event) => setLookup(event.target.value)} placeholder="สแกน Tracking ID หรือ Order ID" />
           </label>
-          <button className="primary"><Send size={20} />Confirm Dispatch</button>
+          <button className="primary"><Send size={20} />ยืนยันส่งมอบ</button>
         </form>
         {result && (
           <div className="routeDisplay">
@@ -1224,7 +1310,7 @@ function DispatchPage({ onRefresh }) {
         {error && <Alert type="error">{error}</Alert>}
         {cameraOpen && (
           <CameraScanner
-            title="Camera Scan Final Label"
+            title="ใช้กล้องสแกนใบปะหน้า"
             onResult={setLookup}
             onClose={() => setCameraOpen(false)}
           />
@@ -1267,40 +1353,40 @@ function OrdersPage({ onRefresh }) {
       <PageTitle icon={ClipboardList} title="Order Control Center" subtitle="ค้นหา ตรวจสถานะ และเปิดรายละเอียดออเดอร์" />
       <section className="panel">
         <form className="filterBar" onSubmit={applyFilters}>
-          <label>Search
-            <input value={filters.q} onChange={(event) => setFilters({ ...filters, q: event.target.value })} placeholder="tracking, order, customer" />
+          <label>ค้นหา
+            <input value={filters.q} onChange={(event) => setFilters({ ...filters, q: event.target.value })} placeholder="เลขพัสดุ, เลขออเดอร์, ชื่อลูกค้า" />
           </label>
-          <label>Status
+          <label>สถานะ
             <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}>
-              <option value="">All</option>
-              <option value="Ready to Pack">Ready to Pack</option>
-              <option value="Packing In Progress">Packing In Progress</option>
-              <option value="Packed">Packed</option>
-              <option value="Shipped / Handed Over">Shipped / Handed Over</option>
+              <option value="">ทั้งหมด</option>
+              <option value="Ready to Pack">รอแพ็ค</option>
+              <option value="Packing In Progress">กำลังแพ็ค</option>
+              <option value="Packed">แพ็คเสร็จ</option>
+              <option value="Shipped / Handed Over">ส่งมอบขนส่งแล้ว</option>
             </select>
           </label>
-          <label>Channel
+          <label>ช่องทาง
             <select value={filters.channel} onChange={(event) => setFilters({ ...filters, channel: event.target.value })}>
-              <option value="">All</option>
+              <option value="">ทั้งหมด</option>
               <option value="shopee">Shopee</option>
               <option value="lazada">Lazada</option>
               <option value="tiktok">TikTok</option>
-              <option value="reservation">Reservation</option>
+              <option value="reservation">ใบสั่งจอง/ออเดอร์ทั่วไป</option>
             </select>
           </label>
-          <button className="primary"><Search size={18} />Search</button>
-          <button type="button" className="secondary" onClick={() => Promise.all([loadOrders(), onRefresh()])}><RefreshCw size={18} />Refresh</button>
+          <button className="primary"><Search size={18} />ค้นหา</button>
+          <button type="button" className="secondary" onClick={() => Promise.all([loadOrders(), onRefresh()])}><RefreshCw size={18} />รีเฟรช</button>
         </form>
       </section>
 
       <div className="contentGrid ordersGrid">
         <section className="panel">
           <DataTable
-            columns={["Tracking", "Order", "Channel", "Customer", "Provider", "Status", "Updated"]}
+            columns={["เลขพัสดุ", "ออเดอร์", "ช่องทาง", "ลูกค้า", "ขนส่ง", "สถานะ", "อัปเดต"]}
             rows={orders.map((order) => [
               <button className="linkButton" onClick={() => openOrder(order.id)}>{order.tracking_id}</button>,
               order.order_key,
-              order.channel,
+              channelLabel(order.channel),
               order.customer_name || "-",
               order.shipping_provider || "-",
               <StatusBadge status={order.status} />,
@@ -1311,7 +1397,7 @@ function OrdersPage({ onRefresh }) {
         </section>
 
         <section className="panel detailPanel">
-          <div className="panelHeader"><Boxes size={20} /><h3>Order Detail</h3></div>
+          <div className="panelHeader"><Boxes size={20} /><h3>รายละเอียดออเดอร์</h3></div>
           {!selected && <EmptyState label="เลือก tracking เพื่อดูรายละเอียด" />}
           {selected && (
             <div className="detailStack">
@@ -1320,10 +1406,10 @@ function OrdersPage({ onRefresh }) {
                 <StatusBadge status={selected.status} />
               </div>
               <dl>
-                <div><dt>Tracking</dt><dd>{selected.tracking_id}</dd></div>
-                <div><dt>Customer</dt><dd>{selected.customer_name || "-"}</dd></div>
-                <div><dt>Shipping</dt><dd>{selected.shipping_provider || "-"}</dd></div>
-                <div><dt>Packed By</dt><dd>{selected.packed_by_name || "-"}</dd></div>
+                <div><dt>เลขพัสดุ</dt><dd>{selected.tracking_id}</dd></div>
+                <div><dt>ลูกค้า</dt><dd>{selected.customer_name || "-"}</dd></div>
+                <div><dt>ขนส่ง</dt><dd>{selected.shipping_provider || "-"}</dd></div>
+                <div><dt>แพ็คโดย</dt><dd>{selected.packed_by_name || "-"}</dd></div>
               </dl>
               <div className="itemList tight">
                 {selected.items.map((item) => (
@@ -1355,16 +1441,16 @@ function AuditPage() {
 
   return (
     <div className="pageStack">
-      <PageTitle icon={FileClock} title="Scan Audit" subtitle="ประวัติการสแกนทั้งหมด ใช้ไล่ปัญหา SKU ผิดหรือออเดอร์ไม่พบ" action={<button className="secondary" onClick={loadEvents}><RefreshCw size={18} />Refresh</button>} />
+      <PageTitle icon={FileClock} title="Scan Audit" subtitle="ประวัติการสแกนทั้งหมด ใช้ไล่ปัญหา SKU ผิดหรือออเดอร์ไม่พบ" action={<button className="secondary" onClick={loadEvents}><RefreshCw size={18} />รีเฟรช</button>} />
       <section className="panel">
         <DataTable
-          columns={["Time", "Type", "Value", "Result", "Message", "Order", "Packer"]}
+          columns={["เวลา", "ประเภท", "ค่าที่สแกน", "ผล", "ข้อความ", "ออเดอร์", "คนแพ็ค"]}
           rows={events.map((event) => [
             formatDate(event.created_at),
-            event.scan_type,
+            SCAN_TYPE_LABELS[event.scan_type] || event.scan_type,
             event.scanned_value,
-            <span className={`resultPill ${event.result}`}>{event.result}</span>,
-            event.message || "-",
+            <span className={`resultPill ${event.result}`}>{RESULT_LABELS[event.result] || event.result}</span>,
+            translateMessage(event.message || "-"),
             event.tracking_id || event.order_key || "-",
             event.packer_name || "-"
           ])}
@@ -1427,25 +1513,25 @@ function SettingsPage({ onRefresh }) {
       <PageTitle icon={Settings} title="Settings" subtitle="จัดการข้อมูลตั้งต้นสำหรับ packing station และ routing" />
       <div className="contentGrid two">
         <section className="panel">
-          <div className="panelHeader"><UserRoundPlus size={20} /><h3>Packers</h3></div>
+          <div className="panelHeader"><UserRoundPlus size={20} /><h3>พนักงานแพ็ค</h3></div>
           <form className="formGrid" onSubmit={addPacker}>
-            <input placeholder="Employee Code" value={packerForm.employee_code} onChange={(event) => setPackerForm({ ...packerForm, employee_code: event.target.value })} />
+            <input placeholder="รหัสพนักงาน" value={packerForm.employee_code} onChange={(event) => setPackerForm({ ...packerForm, employee_code: event.target.value })} />
             <input placeholder="Barcode" value={packerForm.barcode} onChange={(event) => setPackerForm({ ...packerForm, barcode: event.target.value })} />
-            <input className="wideInput" placeholder="Display Name" value={packerForm.display_name} onChange={(event) => setPackerForm({ ...packerForm, display_name: event.target.value })} />
-            <button className="primary"><UserRoundPlus size={18} />Add Packer</button>
+            <input className="wideInput" placeholder="ชื่อที่แสดง" value={packerForm.display_name} onChange={(event) => setPackerForm({ ...packerForm, display_name: event.target.value })} />
+            <button className="primary"><UserRoundPlus size={18} />เพิ่มพนักงาน</button>
           </form>
-          <DataTable columns={["Code", "Barcode", "Name"]} rows={packers.map((item) => [item.employee_code, item.barcode, item.display_name])} empty="ยังไม่มี packer" />
+          <DataTable columns={["รหัส", "บาร์โค้ด", "ชื่อ"]} rows={packers.map((item) => [item.employee_code, item.barcode, item.display_name])} empty="ยังไม่มีพนักงานแพ็ค" />
         </section>
 
         <section className="panel">
-          <div className="panelHeader"><Truck size={20} /><h3>Shipping Providers</h3></div>
+          <div className="panelHeader"><Truck size={20} /><h3>รายชื่อขนส่ง</h3></div>
           <form className="formGrid" onSubmit={addProvider}>
-            <input placeholder="Code" value={providerForm.code} onChange={(event) => setProviderForm({ ...providerForm, code: event.target.value })} />
-            <input placeholder="Name" value={providerForm.name} onChange={(event) => setProviderForm({ ...providerForm, name: event.target.value })} />
-            <input className="wideInput" placeholder="Display Name" value={providerForm.display_name} onChange={(event) => setProviderForm({ ...providerForm, display_name: event.target.value })} />
-            <button className="primary"><Truck size={18} />Add Provider</button>
+            <input placeholder="รหัสขนส่ง เช่น SPX" value={providerForm.code} onChange={(event) => setProviderForm({ ...providerForm, code: event.target.value })} />
+            <input placeholder="ชื่อขนส่ง" value={providerForm.name} onChange={(event) => setProviderForm({ ...providerForm, name: event.target.value })} />
+            <input className="wideInput" placeholder="ชื่อที่แสดง" value={providerForm.display_name} onChange={(event) => setProviderForm({ ...providerForm, display_name: event.target.value })} />
+            <button className="primary"><Truck size={18} />เพิ่มขนส่ง</button>
           </form>
-          <DataTable columns={["Code", "Name", "Display"]} rows={providers.map((item) => [item.code, item.name, item.display_name])} empty="ยังไม่มีขนส่ง" />
+          <DataTable columns={["รหัส", "ชื่อ", "ชื่อที่แสดง"]} rows={providers.map((item) => [item.code, item.name, item.display_name])} empty="ยังไม่มีขนส่ง" />
         </section>
       </div>
       {message && <Alert>{message}</Alert>}
@@ -1475,7 +1561,7 @@ function DataTable({ columns, rows, empty }) {
 }
 
 function EmptyState({ label }) {
-  return <div className="emptyState"><Boxes size={28} />{label}</div>;
+  return <div className="emptyState"><Boxes size={28} />{hasBrokenThai(label) ? "ยังไม่มีข้อมูล" : label}</div>;
 }
 
 function App() {
@@ -1536,7 +1622,7 @@ function App() {
       <aside className="sidebar">
         <div className="brandBlock">
           <span>Hillkoff</span>
-          <h1>Packing System</h1>
+          <h1>ระบบแพ็คสินค้า</h1>
         </div>
         <nav>
           {NAV_ITEMS.map((item) => {
@@ -1557,7 +1643,7 @@ function App() {
             <strong>{NAV_ITEMS.find((item) => item.id === activePage)?.label}</strong>
             <span>{new Date().toLocaleDateString("th-TH", { weekday: "long", year: "numeric", month: "short", day: "numeric" })}</span>
           </div>
-          <button className="secondary" onClick={refresh}><RefreshCw size={18} />Refresh</button>
+          <button className="secondary" onClick={refresh}><RefreshCw size={18} />รีเฟรช</button>
         </header>
         {apiError && <Alert type="error">Backend: {apiError}</Alert>}
         {page}
