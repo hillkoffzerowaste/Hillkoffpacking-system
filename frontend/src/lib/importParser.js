@@ -69,16 +69,16 @@ function xpsFallbackRow(text, channel) {
     .join("\n");
   const normalizedText = compactText.replace(/\s+/g, " ");
   const tracking = firstMatch(compactText, [
-    /(?:tracking\s*(?:id|code|number|no\.?)|เลข(?:พัสดุ|ติดตาม)[^A-Z0-9\n]*)[:：\s-]*([A-Z0-9][A-Z0-9-]{7,})/i,
+    /(?:tracking[ \t]*(?:id|code|number|no\.?)|เลข(?:พัสดุ|ติดตาม)[^A-Z0-9\n]*)[:： \t-]*([A-Z0-9][A-Z0-9-]{7,})/i,
     /\b(TH\d{8,}|[A-Z]{2}\d{9}[A-Z]{2}|[A-Z0-9]{10,})\b/i
   ]);
   const order = firstMatch(compactText, [
-    /(?:order\s*(?:id|number|no\.?)|หมายเลขคำสั่งซื้อ|เลขที่ใบสั่งจอง)[^A-Z0-9\n]*[:：\s-]*([A-Z0-9][A-Z0-9-]{4,})/i,
+    /(?:order[ \t]*(?:id|number|no\.?)|หมายเลขคำสั่งซื้อ|เลขที่ใบสั่งจอง)[^A-Z0-9\n]*[:： \t-]*([A-Z0-9][A-Z0-9-]{4,})/i,
     /\b((?:OD|ORDER|SO|PO)[-A-Z0-9]{5,})\b/i
   ]);
   const sku = firstMatch(compactText, [
-    /(?:seller\s*sku|sku\s*(?:reference\s*no\.?)?|รหัสสินค้า)[^A-Z0-9\n]*[:：\s-]*([A-Z0-9][A-Z0-9._/-]{1,})/i,
-    /\bSKU[-_:/\s]*([A-Z0-9][A-Z0-9._/-]{1,})\b/i
+    /(?:seller[ \t]*sku|sku[ \t]*(?:reference[ \t]*no\.?)?|รหัสสินค้า)[^A-Z0-9\n]*[:： \t-]*([A-Z0-9][A-Z0-9._/-]{1,})/i,
+    /\bSKU[-_:/ \t]*([A-Z0-9][A-Z0-9._/-]{1,})\b/i
   ]);
   const productName = firstMatch(compactText, [
     /(?:product\s*name|item\s*name|สินค้า)[^:\n]*[:：]\s*([^\n]+)/i
@@ -167,7 +167,7 @@ function xpsTextToRows(text, channel) {
   }
 
   if (!rows.length) {
-    throw new Error("XPS table header was found, but no data rows could be parsed. Please export CSV or use New Order.");
+    return [xpsFallbackRow(text, channel)];
   }
 
   return rows;
