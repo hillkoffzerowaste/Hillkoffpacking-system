@@ -30,14 +30,15 @@
 - [User Flow](docs/user-flow.md)
 - [GitHub Issues Backlog](docs/github-issues.md)
 
-## MVP Application
+## Full Web Application
 
-This repository now includes a runnable MVP for the full workflow:
+This repository now includes a runnable web app for the full workflow:
 
 - Backend: Express + SQLite
 - Frontend: React + Vite
 - Import parsing: CSV and XLS/XLSX
 - Demo data reset endpoint
+- Multi-screen operations UI
 
 ### Run Locally
 
@@ -64,9 +65,19 @@ Final scan: SPX-TRACK-1001
 
 Sample import files are available in `imports/`.
 
-Current MVP screen:
+### Application Screens
 
-![MVP Dashboard](docs/mvp-dashboard-screenshot.png)
+- Dashboard: real-time operation metrics and shipping queue
+- Import: marketplace/reservation file import and import history
+- Packing: packer identification, order lookup, and SKU scan validation
+- Dispatch: final scan with large shipping route display
+- Orders: searchable order control center and item detail
+- Audit: scan event log for troubleshooting
+- Settings: packer and shipping provider setup
+
+Current app screen:
+
+![Full App Dashboard](docs/full-app-dashboard-screenshot.png)
 
 ## Suggested Repository Structure
 

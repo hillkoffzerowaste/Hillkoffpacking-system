@@ -55,3 +55,6 @@ test("validation rejects missing sku", () => {
   assert.throws(() => validateMappedOrder(mapped, 2), /missing sku/);
 });
 
+test("throws for unsupported channels", () => {
+  assert.throws(() => mapImportRow({}, "unknown"), /Unsupported channel/);
+});

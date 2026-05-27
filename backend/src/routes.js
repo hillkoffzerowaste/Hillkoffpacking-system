@@ -37,6 +37,43 @@ router.get("/reference/shipping-providers", (_req, res) => {
   res.json({ shipping_providers: listProviders() });
 });
 
+router.get("/dashboard/summary", (_req, res) => {
+  const statusRows = db.prepare(`
+    select status, count(*) as count
+    from orders
+    group by status
+    order by status
+  `).all();
+
+  const providerRows = db.prepare(`
+    select coalesce(sp.display_name, 'Unassigned') as shipping_provider, count(*) as count
+    from orders o
+    left join shipping_providers sp on sp.id = o.shipping_provider_id
+    where o.status in ('Ready to Pack', 'Packing In Progress', 'Verified', 'Packed')
+    group by coalesce(sp.display_name, 'Unassigned')
+    order by count desc
+  `).all();
+
+  const today = new Date().toISOString().slice(0, 10);
+  const packedToday = db.prepare("select count(*) as count from orders where packed_at like ?").get(`${today}%`).count;
+  const shippedToday = db.prepare("select count(*) as count from orders where shipped_at like ?").get(`${today}%`).count;
+  const errorScansToday = db.prepare("select count(*) as count from scan_events where result = 'error' and created_at like ?").get(`${today}%`).count;
+  const readyCount = db.prepare("select count(*) as count from orders where status = 'Ready to Pack'").get().count;
+  const inProgressCount = db.prepare("select count(*) as count from orders where status = 'Packing In Progress'").get().count;
+
+  res.json({
+    totals: {
+      ready: readyCount,
+      in_progress: inProgressCount,
+      packed_today: packedToday,
+      shipped_today: shippedToday,
+      error_scans_today: errorScansToday
+    },
+    by_status: statusRows,
+    by_provider: providerRows
+  });
+});
+
 router.post("/imports/orders", upload.single("file"), asyncHandler(async (req, res) => {
   if (!req.file) {
     res.status(400).json({ code: "FILE_REQUIRED", message: "Please upload an import file." });
@@ -76,6 +113,41 @@ router.get("/orders/search", (req, res) => {
   res.json({ orders: findOrderByLookup(q) });
 });
 
+router.get("/orders", (req, res) => {
+  const status = String(req.query.status || "").trim();
+  const channel = String(req.query.channel || "").trim();
+  const q = String(req.query.q || "").trim();
+  const params = {};
+  const where = [];
+
+  if (status) {
+    where.push("o.status = @status");
+    params.status = status;
+  }
+
+  if (channel) {
+    where.push("o.channel = @channel");
+    params.channel = channel;
+  }
+
+  if (q) {
+    where.push("(o.tracking_id like @q or o.order_key like @q or o.customer_name like @q)");
+    params.q = `%${q}%`;
+  }
+
+  const sql = `
+    select o.*, sp.display_name as shipping_provider, p.display_name as packed_by_name
+    from orders o
+    left join shipping_providers sp on sp.id = o.shipping_provider_id
+    left join packers p on p.id = o.packed_by
+    ${where.length ? `where ${where.join(" and ")}` : ""}
+    order by o.updated_at desc
+    limit 300
+  `;
+
+  res.json({ orders: db.prepare(sql).all(params) });
+});
+
 router.get("/orders/ready", (_req, res) => {
   const orders = db.prepare(`
     select o.*, sp.display_name as shipping_provider
@@ -86,6 +158,16 @@ router.get("/orders/ready", (_req, res) => {
     limit 100
   `).all();
   res.json({ orders });
+});
+
+router.get("/imports/batches", (_req, res) => {
+  const batches = db.prepare(`
+    select *
+    from import_batches
+    order by created_at desc
+    limit 100
+  `).all();
+  res.json({ batches });
 });
 
 router.get("/orders/:id", (req, res) => {
@@ -113,6 +195,48 @@ router.post("/packing/session", (req, res) => {
   });
 
   res.json({ packer_id: packer.id, display_name: packer.display_name });
+});
+
+router.post("/packers", (req, res) => {
+  const employeeCode = String(req.body.employee_code || "").trim();
+  const barcode = String(req.body.barcode || employeeCode).trim();
+  const displayName = String(req.body.display_name || "").trim();
+
+  if (!employeeCode || !barcode || !displayName) {
+    res.status(400).json({ code: "PACKER_FIELDS_REQUIRED", message: "Employee code, barcode, and display name are required." });
+    return;
+  }
+
+  const now = nowIso();
+  db.prepare(`
+    insert into packers
+      (id, employee_code, barcode, display_name, active, created_at, updated_at)
+    values
+      (@id, @employeeCode, @barcode, @displayName, 1, @now, @now)
+  `).run({ id: nanoid(), employeeCode, barcode, displayName, now });
+
+  res.status(201).json({ packers: listPackers() });
+});
+
+router.post("/shipping-providers", (req, res) => {
+  const code = String(req.body.code || "").trim().toUpperCase();
+  const name = String(req.body.name || "").trim();
+  const displayName = String(req.body.display_name || name).trim();
+
+  if (!code || !name || !displayName) {
+    res.status(400).json({ code: "PROVIDER_FIELDS_REQUIRED", message: "Code, name, and display name are required." });
+    return;
+  }
+
+  const now = nowIso();
+  db.prepare(`
+    insert into shipping_providers
+      (id, code, name, display_name, active, created_at, updated_at)
+    values
+      (@id, @code, @name, @displayName, 1, @now, @now)
+  `).run({ id: nanoid(), code, name, displayName, now });
+
+  res.status(201).json({ shipping_providers: listProviders() });
 });
 
 router.post("/packing/orders/lookup", (req, res) => {
@@ -348,4 +472,3 @@ router.use((err, _req, res, _next) => {
     message: err.message || "Request failed."
   });
 });
-
