@@ -29,7 +29,10 @@ function looksLikeHeader(line, channel) {
     tiktok: ["order id", "seller sku", "quantity", "tracking id"],
     reservation: ["ใบสั่งจอง", "รหัสสินค้า", "จำนวน", "customer"]
   };
-  return (channelHints[channel] || []).some((hint) => lower.includes(hint.toLowerCase()));
+  const hintCount = (channelHints[channel] || [])
+    .filter((hint) => lower.includes(hint.toLowerCase()))
+    .length;
+  return hintCount >= 2 || (hintCount === 1 && splitColumns(line).length >= 3);
 }
 
 function splitColumns(line) {
@@ -37,6 +40,108 @@ function splitColumns(line) {
     .split(/\t| {2,}|\s\|\s|,/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function firstMatch(text, patterns) {
+  for (const pattern of patterns) {
+    const match = String(text || "").match(pattern);
+    if (match?.[1]) return match[1].trim();
+  }
+  return "";
+}
+
+function guessShippingProvider(text) {
+  const lower = String(text || "").toLowerCase();
+  if (lower.includes("j&t") || lower.includes("jnt")) return "J&T Express";
+  if (lower.includes("spx") || lower.includes("shopee express")) return "SPX";
+  if (lower.includes("lex") || lower.includes("lazada")) return "LEX TH";
+  if (lower.includes("flash")) return "Flash Express";
+  if (lower.includes("kerry")) return "Kerry Express";
+  if (lower.includes("ไปรษณีย์") || lower.includes("ems")) return "Thailand Post";
+  return "";
+}
+
+function xpsFallbackRow(text, channel) {
+  const compactText = String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n");
+  const normalizedText = compactText.replace(/\s+/g, " ");
+  const tracking = firstMatch(compactText, [
+    /(?:tracking\s*(?:id|code|number|no\.?)|เลข(?:พัสดุ|ติดตาม)[^A-Z0-9\n]*)[:：\s-]*([A-Z0-9][A-Z0-9-]{7,})/i,
+    /\b(TH\d{8,}|[A-Z]{2}\d{9}[A-Z]{2}|[A-Z0-9]{10,})\b/i
+  ]);
+  const order = firstMatch(compactText, [
+    /(?:order\s*(?:id|number|no\.?)|หมายเลขคำสั่งซื้อ|เลขที่ใบสั่งจอง)[^A-Z0-9\n]*[:：\s-]*([A-Z0-9][A-Z0-9-]{4,})/i,
+    /\b((?:OD|ORDER|SO|PO)[-A-Z0-9]{5,})\b/i
+  ]);
+  const sku = firstMatch(compactText, [
+    /(?:seller\s*sku|sku\s*(?:reference\s*no\.?)?|รหัสสินค้า)[^A-Z0-9\n]*[:：\s-]*([A-Z0-9][A-Z0-9._/-]{1,})/i,
+    /\bSKU[-_:/\s]*([A-Z0-9][A-Z0-9._/-]{1,})\b/i
+  ]);
+  const productName = firstMatch(compactText, [
+    /(?:product\s*name|item\s*name|สินค้า)[^:\n]*[:：]\s*([^\n]+)/i
+  ]);
+  const quantityValue = firstMatch(compactText, [
+    /(?:quantity|qty|จำนวน)[^\d\n]{0,16}(\d{1,4})/i,
+    /(?:x|×)\s*(\d{1,4})\b/i
+  ]) || "1";
+  const customerName = firstMatch(compactText, [
+    /(?:recipient|customer(?:\s*name)?|ship\s*to|ผู้รับ|ชื่อลูกค้า)[^:\n]*[:：]\s*([^\n]+)/i
+  ]);
+  const shippingProvider = guessShippingProvider(normalizedText);
+  const rawText = compactText.slice(0, 1800);
+
+  if (channel === "lazada") {
+    return {
+      orderNumber: order || tracking,
+      trackingCode: tracking || order,
+      sellerSku: sku,
+      itemName: productName,
+      quantity: quantityValue,
+      customerName,
+      shippingProvider,
+      "Raw Text": rawText
+    };
+  }
+
+  if (channel === "tiktok") {
+    return {
+      "Order ID": order || tracking,
+      "Tracking ID": tracking || order,
+      "Seller SKU": sku,
+      "Product Name": productName,
+      Quantity: quantityValue,
+      Recipient: customerName,
+      "Shipping Provider": shippingProvider,
+      "Raw Text": rawText
+    };
+  }
+
+  if (channel === "reservation") {
+    return {
+      reservation_no: order || tracking,
+      tracking_id: tracking || order,
+      SKU: sku,
+      "Product Name": productName,
+      Quantity: quantityValue,
+      "Customer Name": customerName,
+      "Shipping Provider": shippingProvider,
+      "Raw Text": rawText
+    };
+  }
+
+  return {
+    "Order ID": order || tracking,
+    "Tracking Number": tracking || order,
+    "SKU Reference No.": sku,
+    "Product Name": productName,
+    Quantity: quantityValue,
+    "Customer Name": customerName,
+    "Shipping Provider": shippingProvider,
+    "Raw Text": rawText
+  };
 }
 
 function xpsTextToRows(text, channel) {
@@ -47,7 +152,7 @@ function xpsTextToRows(text, channel) {
 
   const headerIndex = lines.findIndex((line) => looksLikeHeader(line, channel));
   if (headerIndex < 0) {
-    throw new Error("XPS text was extracted, but no table header was found. Please export CSV or use New Order.");
+    return [xpsFallbackRow(text, channel)];
   }
 
   const headers = splitColumns(lines[headerIndex]).map(normalizeHeader);
@@ -73,7 +178,8 @@ async function parseXps(file, channel) {
   const pageFiles = Object.values(zip.files)
     .filter((entry) => !entry.dir)
     .filter((entry) => /\.(fpage|xml)$/i.test(entry.name))
-    .filter((entry) => !/\[(content_types)\]|\.rels|metadata|resources/i.test(entry.name));
+    .filter((entry) => !/\[(content_types)\]|\.rels|metadata|resources/i.test(entry.name))
+    .sort((left, right) => left.name.localeCompare(right.name));
 
   const chunks = [];
   for (const entry of pageFiles) {
