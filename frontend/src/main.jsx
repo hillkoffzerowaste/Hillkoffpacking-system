@@ -21,6 +21,24 @@ import {
   UserRoundPlus,
   Users
 } from "lucide-react";
+import {
+  createFirebaseOrder,
+  createFirebasePacker,
+  createFirebaseProvider,
+  dispatchFirebaseOrder,
+  firebaseSummary,
+  identifyFirebasePacker,
+  listFirebaseBatches,
+  listFirebaseOrders,
+  listFirebasePackers,
+  listFirebaseProviders,
+  listFirebaseReadyOrders,
+  listFirebaseScanEvents,
+  lookupFirebaseOrder,
+  resetFirebaseDemo,
+  scanFirebaseSku,
+  getFirebaseOrder
+} from "./lib/firebaseAdapter";
 import "./styles.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:4000/api";
@@ -39,6 +57,10 @@ const NAV_ITEMS = [
 ];
 
 async function api(path, options = {}) {
+  if (DATA_MODE === "firebase") {
+    return firebaseApi(path, options);
+  }
+
   if (DATA_MODE === "local") {
     return localApi(path, options);
   }
@@ -57,6 +79,43 @@ async function api(path, options = {}) {
     }
     throw error;
   }
+}
+
+async function firebaseApi(path, options = {}) {
+  const method = options.method || "GET";
+  const body = options.body && !(options.body instanceof FormData) ? JSON.parse(options.body) : {};
+
+  if (path === "/health") return { ok: true, service: "hillkoff-packing-firebase" };
+  if (path === "/reference/packers") return { packers: await listFirebasePackers() };
+  if (path === "/reference/shipping-providers") return { shipping_providers: await listFirebaseProviders() };
+  if (path === "/dashboard/summary") return firebaseSummary();
+  if (path === "/orders/ready") return { orders: await listFirebaseReadyOrders() };
+  if (path === "/imports/batches") return { batches: await listFirebaseBatches() };
+  if (path === "/scan-events") return { events: await listFirebaseScanEvents() };
+  if (path === "/demo/reset" && method === "POST") return resetFirebaseDemo();
+  if (path === "/orders" && method === "POST") return createFirebaseOrder(body);
+  if (path.startsWith("/orders?")) {
+    const params = new URLSearchParams(path.split("?")[1]);
+    return {
+      orders: await listFirebaseOrders({
+        q: params.get("q") || "",
+        status: params.get("status") || "",
+        channel: params.get("channel") || ""
+      })
+    };
+  }
+  if (path.startsWith("/orders/") && method === "GET") {
+    const detail = await getFirebaseOrder(path.split("/")[2]);
+    if (!detail) throw new Error("Order not found.");
+    return detail;
+  }
+  if (path === "/packing/session" && method === "POST") return identifyFirebasePacker(body.packer_barcode);
+  if (path === "/packing/orders/lookup" && method === "POST") return lookupFirebaseOrder(body.lookup_value, body.packer_id);
+  if (path.includes("/scan-item") && method === "POST") return scanFirebaseSku(path.split("/")[3], body.scanned_sku, body.packer_id);
+  if (path === "/dispatch/final-scan" && method === "POST") return dispatchFirebaseOrder(body.tracking_or_order_id);
+  if (path === "/packers" && method === "POST") return { packers: await createFirebasePacker(body) };
+  if (path === "/shipping-providers" && method === "POST") return { shipping_providers: await createFirebaseProvider(body) };
+  throw new Error("Firebase mode does not support this action yet.");
 }
 
 function uid() {

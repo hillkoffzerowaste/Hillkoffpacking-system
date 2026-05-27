@@ -6,21 +6,28 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function operator() {
+      return signedIn();
+    }
+
     match /orders/{orderId} {
-      allow read, write: if signedIn();
+      allow read, write: if operator();
     }
 
     match /scan_events/{eventId} {
-      allow read, write: if signedIn();
+      allow read, write: if operator();
     }
 
     match /packers/{packerId} {
-      allow read, write: if signedIn();
+      allow read, write: if operator();
     }
 
     match /shipping_providers/{providerId} {
-      allow read, write: if signedIn();
+      allow read, write: if operator();
+    }
+
+    match /import_batches/{batchId} {
+      allow read, write: if operator();
     }
   }
 }
-

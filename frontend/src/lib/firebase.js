@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { getAuth, signInAnonymously } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 export const firebaseConfig = {
@@ -44,3 +44,15 @@ export function getFirebaseServices() {
   };
 }
 
+let authPromise;
+
+export async function ensureFirebaseAuth() {
+  const services = getFirebaseServices();
+  if (!services.enabled) {
+    throw new Error("Firebase is not configured. Add VITE_FIREBASE_* env values first.");
+  }
+
+  if (services.auth.currentUser) return services.auth.currentUser;
+  authPromise ||= signInAnonymously(services.auth).then((credential) => credential.user);
+  return authPromise;
+}

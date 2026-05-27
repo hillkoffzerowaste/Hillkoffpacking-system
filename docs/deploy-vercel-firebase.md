@@ -68,8 +68,9 @@ When ready to switch to Firebase:
 1. Create Firebase project
 2. Enable Firestore
 3. Enable Authentication
+4. Enable Anonymous sign-in provider
 4. Add Firebase env vars to Vercel
-5. Connect UI actions to `frontend/src/lib/firebaseAdapter.js`
+5. Set `VITE_DATA_MODE=firebase` in Vercel
 6. Deploy Firestore rules and indexes
 
 ```powershell
@@ -78,4 +79,22 @@ Copy-Item .firebaserc.example .firebaserc
 firebase deploy --only firestore
 ```
 
-Keep `VITE_DATA_MODE=local` until the UI is switched to Firebase-backed storage.
+Firebase-backed UI actions are wired through `frontend/src/lib/firebaseAdapter.js`.
+
+## Firebase Mode Checklist
+
+Use these Vercel environment variables:
+
+```text
+VITE_DATA_MODE=firebase
+VITE_BASE_PATH=/
+VITE_FIREBASE_API_KEY=...
+VITE_FIREBASE_AUTH_DOMAIN=...
+VITE_FIREBASE_PROJECT_ID=...
+VITE_FIREBASE_STORAGE_BUCKET=...
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+VITE_FIREBASE_APP_ID=...
+VITE_FIREBASE_MEASUREMENT_ID=...
+```
+
+After deploy, open the app and click `Load Demo`. The app should create default packers, shipping providers, demo orders, and scan events in Firestore.
