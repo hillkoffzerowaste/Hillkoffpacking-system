@@ -5,6 +5,7 @@ import {
   Archive,
   Barcode,
   Boxes,
+  Camera,
   CheckCircle2,
   ClipboardList,
   FileClock,
@@ -21,6 +22,7 @@ import {
   UserRoundPlus,
   Users
 } from "lucide-react";
+import { BrowserMultiFormatReader } from "@zxing/browser";
 import {
   createFirebaseOrder,
   createFirebasePacker,
@@ -495,6 +497,96 @@ function Alert({ type = "success", children }) {
   return <div className={`notice ${type}`}><Icon size={18} />{children}</div>;
 }
 
+function ScannerField({
+  label,
+  value,
+  onChange,
+  inputRef,
+  placeholder,
+  disabled,
+  onSubmit,
+  buttonLabel = "Scan"
+}) {
+  function focusScanner() {
+    inputRef?.current?.focus();
+    inputRef?.current?.select?.();
+  }
+
+  return (
+    <div className="scannerField">
+      <label>{label}
+        <input
+          ref={inputRef}
+          value={value}
+          disabled={disabled}
+          placeholder={placeholder}
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && onSubmit) {
+              event.preventDefault();
+              onSubmit();
+            }
+          }}
+        />
+      </label>
+      <button type="button" className="scanModeButton" disabled={disabled} onClick={focusScanner}>
+        <Barcode size={18} />
+        {buttonLabel}
+      </button>
+    </div>
+  );
+}
+
+function CameraScanner({ title, onResult, onClose }) {
+  const videoRef = useRef(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let controls;
+    let active = true;
+    const reader = new BrowserMultiFormatReader();
+
+    async function start() {
+      try {
+        controls = await reader.decodeFromVideoDevice(undefined, videoRef.current, (result) => {
+          if (!active || !result) return;
+          active = false;
+          onResult(result.getText());
+          controls?.stop();
+          onClose();
+        });
+      } catch (err) {
+        setError(err.message || "Cannot open camera.");
+      }
+    }
+
+    start();
+    return () => {
+      active = false;
+      controls?.stop();
+    };
+  }, [onClose, onResult]);
+
+  return (
+    <div className="cameraOverlay">
+      <div className="cameraModal">
+        <div className="cameraHeader">
+          <div>
+            <strong>{title}</strong>
+            <span>Point the camera at a barcode or QR code.</span>
+          </div>
+          <button type="button" className="secondary" onClick={onClose}>Close</button>
+        </div>
+        <div className="cameraFrame">
+          <video ref={videoRef} muted playsInline />
+          <div className="scanGuide" />
+        </div>
+        {error && <Alert type="error">{error}</Alert>}
+      </div>
+    </div>
+  );
+}
+
 function Metric({ label, value, tone }) {
   return (
     <div className={`metric ${tone || ""}`}>
@@ -670,7 +762,10 @@ function NewOrderPage({ onRefresh, onGoPacking }) {
   });
   const [created, setCreated] = useState(null);
   const [error, setError] = useState("");
+  const [cameraTarget, setCameraTarget] = useState(null);
   const orderInputRef = useRef(null);
+  const trackingInputRef = useRef(null);
+  const itemRefs = useRef([]);
 
   useEffect(() => {
     api("/reference/shipping-providers")
@@ -733,6 +828,15 @@ function NewOrderPage({ onRefresh, onGoPacking }) {
       <PageTitle icon={Plus} title="New Order Entry" subtitle="กรอกออเดอร์เองได้ทันที แล้วนำ tracking ไปสแกนแพ็คต่อ" />
       <section className="panel">
         <form className="manualOrderForm" onSubmit={submit}>
+          <div className="scanHelperBar">
+            <span><Barcode size={18} />Barcode scan shortcuts</span>
+            <button type="button" className="scanModeButton" onClick={() => orderInputRef.current?.focus()}>Scan Order</button>
+            <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "Camera Scan Order", apply: (value) => setForm((current) => ({ ...current, order_key: value })) })}><Camera size={18} />Camera Order</button>
+            <button type="button" className="scanModeButton" onClick={() => document.querySelectorAll(".formGrid input")[1]?.focus()}>Scan Label</button>
+            <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "Camera Scan Shipping Label", apply: (value) => setForm((current) => ({ ...current, tracking_id: value })) })}><Camera size={18} />Camera Label</button>
+            <button type="button" className="scanModeButton" onClick={() => document.querySelector(".manualItemRow input")?.focus()}>Scan SKU</button>
+            <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "Camera Scan SKU", apply: (value) => updateItem(0, { sku: value }) })}><Camera size={18} />Camera SKU</button>
+          </div>
           <div className="formGrid">
             <label>Channel
               <select value={form.channel} onChange={(event) => setForm({ ...form, channel: event.target.value })}>
@@ -760,7 +864,10 @@ function NewOrderPage({ onRefresh, onGoPacking }) {
 
           <div className="itemEntryHeader">
             <h3>Items</h3>
-            <button type="button" className="secondary" onClick={addItem}><Plus size={18} />Add SKU</button>
+            <div className="inlineButtonGroup">
+              <button type="button" className="secondary" onClick={() => document.querySelector(".manualItemRow input")?.focus()}><Barcode size={18} />Scan SKU</button>
+              <button type="button" className="secondary" onClick={addItem}><Plus size={18} />Add SKU</button>
+            </div>
           </div>
 
           <div className="manualItems">
@@ -775,6 +882,7 @@ function NewOrderPage({ onRefresh, onGoPacking }) {
                 <label>Qty
                   <input type="number" min="1" value={item.quantity_required} onChange={(event) => updateItem(index, { quantity_required: event.target.value })} />
                 </label>
+                <button type="button" className="iconButton cameraIcon" onClick={() => setCameraTarget({ title: "Camera Scan SKU", apply: (value) => updateItem(index, { sku: value }) })} aria-label="Camera Scan SKU"><Camera size={18} /></button>
                 <button type="button" className="iconButton" onClick={() => removeItem(index)} aria-label="Remove SKU"><Trash2 size={18} /></button>
               </div>
             ))}
@@ -791,6 +899,13 @@ function NewOrderPage({ onRefresh, onGoPacking }) {
             <button className="inlineAction" onClick={() => onGoPacking(created.tracking_id)}>ไปหน้า Packing</button>
           </Alert>
         )}
+        {cameraTarget && (
+          <CameraScanner
+            title={cameraTarget.title}
+            onResult={(value) => cameraTarget.apply(value)}
+            onClose={() => setCameraTarget(null)}
+          />
+        )}
       </section>
     </div>
   );
@@ -805,6 +920,8 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
   const [order, setOrder] = useState(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [cameraTarget, setCameraTarget] = useState(null);
+  const packerRef = useRef(null);
   const lookupRef = useRef(null);
   const skuRef = useRef(null);
 
@@ -887,9 +1004,18 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
       <div className="contentGrid stationGrid">
         <section className="panel stationPanel">
           <div className="panelHeader"><Users size={20} /><h3>Packer Identification</h3></div>
+          <div className="scanHelperBar">
+            <span><Barcode size={18} />Scan workflow</span>
+            <button type="button" className="scanModeButton" onClick={() => packerRef.current?.focus()}>Scan Packer</button>
+            <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "Camera Scan Packer", apply: setPackerBarcode })}><Camera size={18} />Camera Packer</button>
+            <button type="button" className="scanModeButton" disabled={!packer} onClick={() => lookupRef.current?.focus()}>Scan Label</button>
+            <button type="button" className="scanModeButton camera" disabled={!packer} onClick={() => setCameraTarget({ title: "Camera Scan Shipping Label", apply: setLookup })}><Camera size={18} />Camera Label</button>
+            <button type="button" className="scanModeButton" disabled={!order} onClick={() => skuRef.current?.focus()}>Scan SKU</button>
+            <button type="button" className="scanModeButton camera" disabled={!order} onClick={() => setCameraTarget({ title: "Camera Scan SKU", apply: setSku })}><Camera size={18} />Camera SKU</button>
+          </div>
           <form className="inlineForm" onSubmit={identifyPacker}>
             <label>Packer Barcode
-              <input value={packerBarcode} onChange={(event) => setPackerBarcode(event.target.value)} list="packer-list" />
+              <input ref={packerRef} value={packerBarcode} onChange={(event) => setPackerBarcode(event.target.value)} list="packer-list" />
               <datalist id="packer-list">
                 {packers.map((item) => <option key={item.id} value={item.barcode}>{item.display_name}</option>)}
               </datalist>
@@ -936,6 +1062,13 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
 
           {message && <Alert>{message}</Alert>}
           {error && <Alert type="error">{error}</Alert>}
+          {cameraTarget && (
+            <CameraScanner
+              title={cameraTarget.title}
+              onResult={(value) => cameraTarget.apply(value)}
+              onClose={() => setCameraTarget(null)}
+            />
+          )}
         </section>
 
         <section className="panel sideQueue">
@@ -959,6 +1092,7 @@ function DispatchPage({ onRefresh }) {
   const [lookup, setLookup] = useState("");
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
+  const [cameraOpen, setCameraOpen] = useState(false);
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -987,6 +1121,11 @@ function DispatchPage({ onRefresh }) {
     <div className="pageStack">
       <PageTitle icon={Send} title="Final Sorting & Dispatch" subtitle="สแกนกล่องที่ปิดแล้วเพื่อยืนยันพร้อมส่ง และแสดงโซนขนส่ง" />
       <section className="dispatchStage">
+        <div className="scanHelperBar dark">
+          <span><Barcode size={18} />Ready for barcode scanner</span>
+          <button type="button" className="scanModeButton" onClick={() => inputRef.current?.focus()}>Scan Final Label</button>
+          <button type="button" className="scanModeButton camera" onClick={() => setCameraOpen(true)}><Camera size={18} />Camera Final Label</button>
+        </div>
         <form className="dispatchForm" onSubmit={dispatch}>
           <label>Final Shipping Label Scan
             <input ref={inputRef} value={lookup} onChange={(event) => setLookup(event.target.value)} placeholder="สแกน Tracking ID หรือ Order ID" />
@@ -1001,6 +1140,13 @@ function DispatchPage({ onRefresh }) {
           </div>
         )}
         {error && <Alert type="error">{error}</Alert>}
+        {cameraOpen && (
+          <CameraScanner
+            title="Camera Scan Final Label"
+            onResult={setLookup}
+            onClose={() => setCameraOpen(false)}
+          />
+        )}
       </section>
     </div>
   );

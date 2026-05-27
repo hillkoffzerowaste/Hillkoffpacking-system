@@ -309,6 +309,65 @@ input:disabled {
   margin: 16px 0;
 }
 
+.scanHelperBar {
+  align-items: center;
+  background: #eff5eb;
+  border: 1px solid #cbd8c6;
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding: 10px;
+}
+
+.scanHelperBar span {
+  align-items: center;
+  color: #153b2f;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 900;
+  gap: 8px;
+}
+
+.scanHelperBar.dark {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.scanHelperBar.dark span {
+  color: #fff;
+}
+
+.scanModeButton {
+  align-items: center;
+  background: #153b2f;
+  border-radius: 6px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 900;
+  gap: 7px;
+  min-height: 36px;
+  padding: 8px 10px;
+}
+
+.scanModeButton.camera {
+  background: #2b8a67;
+}
+
+.scanModeButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.inlineButtonGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .manualOrderForm {
   display: grid;
   gap: 18px;
@@ -339,7 +398,7 @@ input:disabled {
   border-radius: 8px;
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) 92px 42px;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) 92px 42px 42px;
   padding: 12px;
 }
 
@@ -352,6 +411,76 @@ input:disabled {
   height: 42px;
   justify-content: center;
   width: 42px;
+}
+
+.iconButton.cameraIcon {
+  background: #e5f6ed;
+  color: #176543;
+}
+
+.cameraOverlay {
+  align-items: center;
+  background: rgba(15, 29, 23, 0.72);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 18px;
+  position: fixed;
+  z-index: 100;
+}
+
+.cameraModal {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
+  display: grid;
+  gap: 12px;
+  max-width: 620px;
+  padding: 16px;
+  width: min(100%, 620px);
+}
+
+.cameraHeader {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.cameraHeader strong,
+.cameraHeader span {
+  display: block;
+}
+
+.cameraHeader span {
+  color: #637163;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.cameraFrame {
+  background: #101814;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+
+.cameraFrame video {
+  aspect-ratio: 4 / 3;
+  display: block;
+  object-fit: cover;
+  width: 100%;
+}
+
+.scanGuide {
+  border: 3px solid #ffd166;
+  border-radius: 8px;
+  height: 34%;
+  left: 12%;
+  pointer-events: none;
+  position: absolute;
+  top: 33%;
+  width: 76%;
 }
 
 .formActions {
