@@ -343,7 +343,7 @@ export async function resetFirebaseDemo() {
 export async function importFirebaseFile({ file, channel, deduplicationAction }) {
   await ensureFirebaseReady();
   const db = requireFirestore();
-  const rows = await parseImportFile(file);
+  const rows = await parseImportFile(file, channel);
   const stats = {
     batch_id: uid(),
     status: "completed",
