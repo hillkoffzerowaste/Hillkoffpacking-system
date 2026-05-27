@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import readXlsxFile from "read-excel-file/browser";
 
 function value(row, names) {
   for (const name of names) {
@@ -151,21 +152,52 @@ function parseCsv(text) {
     .filter((record) => Object.values(record).some(Boolean));
 }
 
+function spreadsheetRowsToRecords(rows, channel, sourceName) {
+  const normalizedRows = rows
+    .map((row) => row.map((cell) => String(cell ?? "").trim()))
+    .filter((row) => row.some(Boolean));
+
+  const detectedHeaderIndex = normalizedRows.findIndex((row) => looksLikeHeader(row.join(" "), channel));
+  const headerIndex = detectedHeaderIndex >= 0 ? detectedHeaderIndex : 0;
+  const headers = normalizedRows[headerIndex] || [];
+  const records = normalizedRows.slice(headerIndex + 1)
+    .map((row) => headers.reduce((record, header, index) => {
+      if (header) record[header] = row[index] || "";
+      return record;
+    }, {}))
+    .filter((record) => Object.values(record).some(Boolean));
+
+  if (!headers.some(Boolean) || !records.length) {
+    throw new Error(`${sourceName} could not be parsed. Please check that the first sheet has a header row and order data.`);
+  }
+
+  return records;
+}
+
+async function parseExcel(file, channel) {
+  const rows = await readXlsxFile(file);
+  return spreadsheetRowsToRecords(rows, channel, "Excel file");
+}
+
 export async function parseImportFile(file, channel) {
   const lowerName = file.name.toLowerCase();
   if (lowerName.endsWith(".csv")) {
     return parseCsv(await file.text());
   }
 
+  if (lowerName.endsWith(".xlsx")) {
+    return parseExcel(file, channel);
+  }
+
+  if (lowerName.endsWith(".xls")) {
+    throw new Error("Old .xls files are not supported yet. Please save as .xlsx or CSV and import again.");
+  }
+
   if (lowerName.endsWith(".xps") || lowerName.endsWith(".oxps")) {
     return parseXps(file, channel);
   }
 
-  if (lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls")) {
-    throw new Error("Firebase import currently supports CSV. Please save the spreadsheet as CSV and import again.");
-  }
-
-  throw new Error("Firebase import supports CSV and text-based XPS files.");
+  throw new Error("Firebase import supports CSV, XLSX, and text-based XPS files.");
 }
 
 export function mapImportRow(row, channel) {
