@@ -1,5 +1,4 @@
 import JSZip from "jszip";
-import readXlsxFile from "read-excel-file/browser";
 
 function value(row, names) {
   for (const name of names) {
@@ -207,9 +206,116 @@ function spreadsheetRowsToRecords(rows, channel, sourceName) {
   return records;
 }
 
+function xmlAttribute(tag, name) {
+  const match = tag.match(new RegExp(`${name}="([^"]*)"`, "i"));
+  return match ? decodeXml(match[1]) : "";
+}
+
+function normalizeZipPath(basePath, targetPath) {
+  if (!targetPath) return "";
+  if (targetPath.startsWith("/")) return targetPath.slice(1);
+  const baseParts = basePath.split("/");
+  baseParts.pop();
+  for (const part of targetPath.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") baseParts.pop();
+    else baseParts.push(part);
+  }
+  return baseParts.join("/");
+}
+
+function excelColumnIndex(ref) {
+  const letters = String(ref || "").match(/[A-Z]+/i)?.[0]?.toUpperCase() || "A";
+  return [...letters].reduce((total, letter) => total * 26 + letter.charCodeAt(0) - 64, 0) - 1;
+}
+
+function excelRowIndex(ref) {
+  const row = Number.parseInt(String(ref || "").match(/\d+/)?.[0] || "1", 10);
+  return Number.isFinite(row) && row > 0 ? row - 1 : 0;
+}
+
+function textFromXml(fragment) {
+  return [...String(fragment || "").matchAll(/<[^:>]*:?t(?:\s[^>]*)?>([\s\S]*?)<\/[^:>]*:?t>/gi)]
+    .map((match) => decodeXml(match[1]))
+    .join("");
+}
+
+function parseRelationships(xml) {
+  return [...String(xml || "").matchAll(/<Relationship\b[^>]*>/gi)].reduce((map, match) => {
+    const tag = match[0];
+    const id = xmlAttribute(tag, "Id");
+    if (id) {
+      map[id] = {
+        target: xmlAttribute(tag, "Target"),
+        type: xmlAttribute(tag, "Type")
+      };
+    }
+    return map;
+  }, {});
+}
+
+function parseSharedStrings(xml) {
+  return [...String(xml || "").matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/gi)]
+    .map((match) => textFromXml(match[1]));
+}
+
+function parseWorksheetRows(xml, sharedStrings) {
+  const rows = [];
+  const cellPattern = /<c\b([^>]*)>([\s\S]*?)<\/c>|<c\b([^>]*)\/>/gi;
+  for (const match of String(xml || "").matchAll(cellPattern)) {
+    const attrs = match[1] || match[3] || "";
+    const body = match[2] || "";
+    const ref = xmlAttribute(attrs, "r");
+    const type = xmlAttribute(attrs, "t");
+    const rowIndex = excelRowIndex(ref);
+    const columnIndex = excelColumnIndex(ref);
+    const rawValue = body.match(/<v>([\s\S]*?)<\/v>/i)?.[1] ?? "";
+    let cellValue = "";
+
+    if (type === "s") {
+      cellValue = sharedStrings[Number.parseInt(rawValue, 10)] ?? "";
+    } else if (type === "inlineStr") {
+      cellValue = textFromXml(body);
+    } else {
+      cellValue = decodeXml(rawValue);
+    }
+
+    if (!rows[rowIndex]) rows[rowIndex] = [];
+    rows[rowIndex][columnIndex] = cellValue;
+  }
+  return rows.map((row) => row || []);
+}
+
 async function parseExcel(file, channel) {
-  const sheets = await readXlsxFile(file, { sheets: [1] });
-  const rows = Array.isArray(sheets) && sheets[0]?.data ? sheets[0].data : sheets;
+  const zip = await JSZip.loadAsync(await file.arrayBuffer());
+  const workbookPath = "xl/workbook.xml";
+  const workbookXml = await zip.file(workbookPath)?.async("text");
+  const workbookRelsXml = await zip.file("xl/_rels/workbook.xml.rels")?.async("text");
+
+  if (!workbookXml || !workbookRelsXml) {
+    throw new Error("Excel file could not be read. Please save it again as .xlsx and try importing again.");
+  }
+
+  const firstSheetTag = String(workbookXml).match(/<sheet\b[^>]*>/i)?.[0] || "";
+  const firstSheetRelId = xmlAttribute(firstSheetTag, "r:id") || xmlAttribute(firstSheetTag, "id");
+  const relationships = parseRelationships(workbookRelsXml);
+  const firstSheetRel = relationships[firstSheetRelId] || Object.values(relationships)
+    .find((relationship) => relationship.type.includes("/worksheet"));
+  const worksheetPath = normalizeZipPath("xl/workbook.xml", firstSheetRel?.target || "worksheets/sheet1.xml");
+  const worksheetXml = await zip.file(worksheetPath)?.async("text");
+
+  if (!worksheetXml) {
+    throw new Error("Excel worksheet could not be found. Please keep the order data in the first sheet and try again.");
+  }
+
+  const sharedStringsRel = Object.values(relationships).find((relationship) => relationship.type.includes("/sharedStrings"));
+  const sharedStringsPath = sharedStringsRel
+    ? normalizeZipPath("xl/workbook.xml", sharedStringsRel.target)
+    : "xl/sharedStrings.xml";
+  const sharedStringsXml = await zip.file(sharedStringsPath)?.async("text");
+  const sharedStrings = sharedStringsXml ? parseSharedStrings(sharedStringsXml) : [];
+  const rows = parseWorksheetRows(worksheetXml, sharedStrings);
+
   return spreadsheetRowsToRecords(rows, channel, "Excel file");
 }
 
