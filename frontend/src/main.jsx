@@ -75,7 +75,7 @@ const SUBTITLE_LABELS = {
   "Operations Dashboard": "ดูจำนวนออเดอร์ที่รอแพ็ค กำลังแพ็ค แพ็คเสร็จ และส่งมอบขนส่งแล้ว",
   "Import Orders": "แปลงไฟล์เป็น CSV ตรวจข้อมูล แล้วนำเข้าเป็นออเดอร์พร้อมแพ็ค",
   "New Order Entry": "ใช้สำหรับใบสั่งจองหรือออเดอร์ที่ไม่มีไฟล์นำเข้า กรอกแล้วส่งต่อไปหน้าแพ็ค",
-  "Packing Station": "สแกนพนักงาน สแกนใบปะหน้า แล้วสแกน SKU ทีละชิ้นให้ครบจำนวน",
+  "Packing Station": "สแกนใบปะหน้าเพื่อดึงออเดอร์ แล้วสแกน SKU ทีละชิ้นให้ครบจำนวน",
   "Final Sorting & Dispatch": "สแกนกล่องที่ปิดแล้ว ระบบจะแสดงโซนขนส่งและเปลี่ยนสถานะเป็นส่งมอบแล้ว",
   "Order Control Center": "ค้นหา ตรวจสถานะ และเปิดดูรายละเอียดออเดอร์ทั้งหมด",
   "Scan Audit": "ดูย้อนหลังว่าใครสแกนอะไร ผ่านหรือไม่ผ่าน ใช้ตรวจปัญหาได้",
@@ -1080,43 +1080,22 @@ function NewOrderPage({ onRefresh, onGoPacking }) {
 }
 
 function PackingPage({ onRefresh, readyOrders, initialLookup }) {
-  const [packers, setPackers] = useState([]);
-  const [packer, setPacker] = useState(null);
-  const [packerBarcode, setPackerBarcode] = useState("EMP001");
   const [lookup, setLookup] = useState("");
   const [sku, setSku] = useState("");
   const [order, setOrder] = useState(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [cameraTarget, setCameraTarget] = useState(null);
-  const packerRef = useRef(null);
   const lookupRef = useRef(null);
   const skuRef = useRef(null);
 
   useEffect(() => {
-    api("/reference/packers").then((data) => setPackers(data.packers)).catch(() => setPackers([]));
+    lookupRef.current?.focus();
   }, []);
-
-  useEffect(() => {
-    if (packer) lookupRef.current?.focus();
-  }, [packer]);
 
   useEffect(() => {
     if (initialLookup) setLookup(initialLookup);
   }, [initialLookup]);
-
-  async function identifyPacker(event) {
-    event.preventDefault();
-    setError("");
-    try {
-      const data = await api("/packing/session", { method: "POST", body: JSON.stringify({ packer_barcode: packerBarcode }) });
-      setPacker(data);
-      setMessage(`พร้อมทำงาน: ${data.display_name}`);
-    } catch (err) {
-      setError(err.message);
-      playErrorSound();
-    }
-  }
 
   async function loadOrder(event) {
     event.preventDefault();
@@ -1125,7 +1104,7 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
     try {
       const data = await api("/packing/orders/lookup", {
         method: "POST",
-        body: JSON.stringify({ lookup_value: lookup, packer_id: packer?.packer_id })
+        body: JSON.stringify({ lookup_value: lookup, packer_id: null })
       });
       setOrder(data);
       setMessage(`โหลดออเดอร์ ${data.order_key} แล้ว`);
@@ -1146,7 +1125,7 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
     try {
       const data = await api(`/packing/orders/${order.id}/scan-item`, {
         method: "POST",
-        body: JSON.stringify({ scanned_sku: sku, packer_id: packer?.packer_id })
+        body: JSON.stringify({ scanned_sku: sku, packer_id: null })
       });
       setOrder(data.order);
       setMessage(`${data.sku}: ${data.quantity_scanned}/${data.quantity_required}`);
@@ -1171,33 +1150,20 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
       <PageTitle icon={PackageCheck} title="Packing Station" subtitle="สแกนใบปะหน้า ดึงออเดอร์ และตรวจ SKU ทีละชิ้น" />
       <div className="contentGrid stationGrid">
         <section className="panel stationPanel">
-          <div className="panelHeader"><Users size={20} /><h3>ระบุคนแพ็ค</h3></div>
+          <div className="panelHeader"><PackageCheck size={20} /><h3>สแกนใบปะหน้าและแพ็คสินค้า</h3></div>
           <div className="scanHelperBar">
-            <span><Barcode size={18} />ลำดับการสแกน</span>
-            <button type="button" className="scanModeButton" onClick={() => packerRef.current?.focus()}>1. สแกนพนักงาน</button>
-            <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "ใช้กล้องสแกนพนักงาน", apply: setPackerBarcode })}><Camera size={18} />กล้องพนักงาน</button>
-            <button type="button" className="scanModeButton" disabled={!packer} onClick={() => lookupRef.current?.focus()}>2. สแกนใบปะหน้า</button>
-            <button type="button" className="scanModeButton camera" disabled={!packer} onClick={() => setCameraTarget({ title: "ใช้กล้องสแกนใบปะหน้า", apply: setLookup })}><Camera size={18} />กล้องใบปะหน้า</button>
-            <button type="button" className="scanModeButton" disabled={!order} onClick={() => skuRef.current?.focus()}>3. สแกน SKU</button>
+            <span><Barcode size={18} />ลำดับงานแพ็ค</span>
+            <button type="button" className="scanModeButton" onClick={() => lookupRef.current?.focus()}>1. สแกนใบปะหน้า</button>
+            <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "ใช้กล้องสแกนใบปะหน้า", apply: setLookup })}><Camera size={18} />กล้องใบปะหน้า</button>
+            <button type="button" className="scanModeButton" disabled={!order} onClick={() => skuRef.current?.focus()}>2. สแกน SKU</button>
             <button type="button" className="scanModeButton camera" disabled={!order} onClick={() => setCameraTarget({ title: "ใช้กล้องสแกน SKU", apply: setSku })}><Camera size={18} />กล้อง SKU</button>
           </div>
-          <form className="inlineForm" onSubmit={identifyPacker}>
-            <label>รหัสพนักงานแพ็ค
-              <input ref={packerRef} value={packerBarcode} onChange={(event) => setPackerBarcode(event.target.value)} list="packer-list" />
-              <datalist id="packer-list">
-                {packers.map((item) => <option key={item.id} value={item.barcode}>{item.display_name}</option>)}
-              </datalist>
-            </label>
-            <button className="primary"><Barcode size={18} />ยืนยันพนักงาน</button>
-          </form>
-
-          <div className="divider" />
 
           <form className="inlineForm" onSubmit={loadOrder}>
             <label>ค้นหาออเดอร์ / เลขพัสดุ / ลูกค้า
-              <input ref={lookupRef} value={lookup} onChange={(event) => setLookup(event.target.value)} disabled={!packer} placeholder="เช่น SPX-TRACK-1001" />
+              <input ref={lookupRef} value={lookup} onChange={(event) => setLookup(event.target.value)} placeholder="เช่น SPX-TRACK-1001" />
             </label>
-            <button className="primary" disabled={!packer}><Search size={18} />โหลดออเดอร์</button>
+            <button className="primary"><Search size={18} />โหลดออเดอร์</button>
           </form>
 
           {order && (
