@@ -309,6 +309,39 @@ input:disabled {
   margin: 16px 0;
 }
 
+.converterBox {
+  align-items: center;
+  background: #f4f7f1;
+  border: 1px solid #dce4d8;
+  border-radius: 8px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  min-height: 72px;
+  padding: 12px;
+}
+
+.converterBox strong,
+.converterBox span {
+  display: block;
+}
+
+.converterBox strong {
+  color: #153b2f;
+  font-size: 14px;
+}
+
+.converterBox span {
+  color: #637163;
+  font-size: 13px;
+  font-weight: 800;
+  margin-top: 3px;
+}
+
+.csvPreview {
+  overflow-x: auto;
+}
+
 .scanHelperBar {
   align-items: center;
   background: #eff5eb;
@@ -850,5 +883,10 @@ dd {
 
   .routeDisplay strong {
     font-size: 42px;
+  }
+
+  .converterBox {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

@@ -143,13 +143,41 @@ function parseCsv(text) {
     rows.push(current);
   }
 
-  const headers = rows[0]?.map((header) => String(header || "").trim()) || [];
+  const headers = rows[0]?.map((header, index) => {
+    const cleanHeader = String(header || "").trim();
+    return index === 0 ? cleanHeader.replace(/^\uFEFF/, "") : cleanHeader;
+  }) || [];
   return rows.slice(1)
     .map((row) => headers.reduce((record, header, index) => {
       if (header) record[header] = String(row[index] || "").trim();
       return record;
     }, {}))
     .filter((record) => Object.values(record).some(Boolean));
+}
+
+function csvValue(valueText) {
+  const valueString = String(valueText ?? "");
+  if (/[",\r\n]/.test(valueString)) {
+    return `"${valueString.replaceAll("\"", "\"\"")}"`;
+  }
+  return valueString;
+}
+
+export function recordsToCsv(records) {
+  const headers = [...records.reduce((set, record) => {
+    Object.keys(record || {}).forEach((key) => set.add(key));
+    return set;
+  }, new Set())];
+
+  if (!headers.length) {
+    throw new Error("No columns were found for CSV conversion.");
+  }
+
+  const lines = [
+    headers.map(csvValue).join(","),
+    ...records.map((record) => headers.map((header) => csvValue(record?.[header] || "")).join(","))
+  ];
+  return `\uFEFF${lines.join("\r\n")}`;
 }
 
 function spreadsheetRowsToRecords(rows, channel, sourceName) {

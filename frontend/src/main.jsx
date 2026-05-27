@@ -23,6 +23,7 @@ import {
   Users
 } from "lucide-react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
+import { parseImportFile, recordsToCsv } from "./lib/importParser";
 import {
   createFirebaseOrder,
   createFirebasePacker,
@@ -660,10 +661,21 @@ function ImportPage({ onRefresh }) {
   const [channel, setChannel] = useState("shopee");
   const [dedupe, setDedupe] = useState("ignore");
   const [file, setFile] = useState(null);
+  const [convertedFile, setConvertedFile] = useState(null);
+  const [convertedRows, setConvertedRows] = useState([]);
+  const [convertError, setConvertError] = useState("");
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [converting, setConverting] = useState(false);
   const [batches, setBatches] = useState([]);
+  const previewColumns = useMemo(() => {
+    const columns = [...convertedRows.reduce((set, row) => {
+      Object.keys(row || {}).forEach((key) => set.add(key));
+      return set;
+    }, new Set())];
+    return columns.slice(0, 8);
+  }, [convertedRows]);
 
   async function loadBatches() {
     const data = await api("/imports/batches");
@@ -674,9 +686,52 @@ function ImportPage({ onRefresh }) {
     loadBatches().catch(() => setBatches([]));
   }, []);
 
+  function selectFile(nextFile) {
+    setFile(nextFile);
+    setConvertedFile(null);
+    setConvertedRows([]);
+    setConvertError("");
+    setResult(null);
+    setError("");
+  }
+
+  function selectChannel(nextChannel) {
+    setChannel(nextChannel);
+    setConvertedFile(null);
+    setConvertedRows([]);
+    setConvertError("");
+    setResult(null);
+  }
+
+  async function convertSelectedFile() {
+    if (!file) {
+      setConvertError("Please choose a document before converting.");
+      return;
+    }
+
+    setConverting(true);
+    setConvertError("");
+    setError("");
+    try {
+      const rows = await parseImportFile(file, channel);
+      const csv = recordsToCsv(rows);
+      const csvName = file.name.replace(/\.[^.]+$/, "") || "orders";
+      const nextFile = new File([csv], `${csvName}.csv`, { type: "text/csv;charset=utf-8" });
+      setConvertedFile(nextFile);
+      setConvertedRows(rows);
+    } catch (err) {
+      setConvertedFile(null);
+      setConvertedRows([]);
+      setConvertError(err.message);
+    } finally {
+      setConverting(false);
+    }
+  }
+
   async function submit(event) {
     event.preventDefault();
-    if (!file) {
+    const importFile = convertedFile || file;
+    if (!importFile) {
       setError("กรุณาเลือกไฟล์ CSV หรือ XLSX ก่อนนำเข้า");
       return;
     }
@@ -685,7 +740,7 @@ function ImportPage({ onRefresh }) {
     setError("");
     try {
       const form = new FormData();
-      form.append("file", file);
+      form.append("file", importFile);
       form.append("channel", channel);
       form.append("deduplication_action", dedupe);
       const data = await api("/imports/orders", { method: "POST", body: form });
@@ -706,7 +761,7 @@ function ImportPage({ onRefresh }) {
           <div className="panelHeader"><Upload size={20} /><h3>New Import</h3></div>
           <form className="formGrid" onSubmit={submit}>
             <label>Channel
-              <select value={channel} onChange={(event) => setChannel(event.target.value)}>
+              <select value={channel} onChange={(event) => selectChannel(event.target.value)}>
                 <option value="shopee">Shopee</option>
                 <option value="lazada">Lazada</option>
                 <option value="tiktok">TikTok</option>
@@ -720,9 +775,28 @@ function ImportPage({ onRefresh }) {
               </select>
             </label>
             <label className="wide">Import File
-              <input type="file" accept=".csv,.xlsx,.xls,.xps" onChange={(event) => setFile(event.target.files?.[0] || null)} />
+              <input type="file" accept=".csv,.xlsx,.xls,.xps,.oxps" onChange={(event) => selectFile(event.target.files?.[0] || null)} />
             </label>
-            <button className="primary" disabled={busy}><Upload size={18} />Import</button>
+            <div className="wide converterBox">
+              <div>
+                <strong>Convert document to CSV</strong>
+                <span>{convertedFile ? `${convertedFile.name} ready (${convertedRows.length} rows)` : "Excel/XPS will be converted to CSV before import."}</span>
+              </div>
+              <button type="button" className="secondary" disabled={busy || converting || !file} onClick={convertSelectedFile}>
+                <FileClock size={18} />{converting ? "Converting..." : "Convert"}
+              </button>
+            </div>
+            {convertError && <div className="wide"><Alert type="error">{convertError}</Alert></div>}
+            {convertedRows.length > 0 && (
+              <div className="wide csvPreview">
+                <DataTable
+                  columns={previewColumns}
+                  rows={convertedRows.slice(0, 5).map((row) => previewColumns.map((column) => row[column] || ""))}
+                  empty="No converted rows"
+                />
+              </div>
+            )}
+            <button className="primary" disabled={busy}><Upload size={18} />{convertedFile ? "Import CSV" : "Import"}</button>
           </form>
           {error && <Alert type="error">{error}</Alert>}
           {result && (
