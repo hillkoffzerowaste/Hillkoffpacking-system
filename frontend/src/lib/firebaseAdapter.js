@@ -12,6 +12,7 @@ import {
   where
 } from "firebase/firestore";
 import { ensureFirebaseAuth, getFirebaseServices } from "./firebase";
+import { mapImportRow, parseImportFile } from "./importParser";
 
 const DEFAULT_PROVIDERS = [
   { id: "JNT", code: "JNT", name: "J&T Express", display_name: "J&T Express", active: 1 },
@@ -337,6 +338,81 @@ export async function resetFirebaseDemo() {
   const batch = { source: "firebase-demo", channel: "mixed", file_name: "firebase-demo", total_rows: rows.length, created_count: rows.length, ignored_count: 0, overwritten_count: 0, error_count: 0, status: "completed", created_at: nowIso(), completed_at: nowIso() };
   await addDoc(collection(db, "import_batches"), batch);
   return { ok: true, batches: [batch], demo_scans: ["EMP001", rows[0].tracking_id, "COF-DRIP-001", "COF-DRIP-001"] };
+}
+
+export async function importFirebaseFile({ file, channel, deduplicationAction }) {
+  await ensureFirebaseReady();
+  const db = requireFirestore();
+  const rows = await parseImportFile(file);
+  const stats = {
+    batch_id: uid(),
+    status: "completed",
+    total_rows: rows.length,
+    created_count: 0,
+    ignored_count: 0,
+    overwritten_count: 0,
+    error_count: 0,
+    errors: []
+  };
+
+  for (let index = 0; index < rows.length; index += 1) {
+    try {
+      const mapped = mapImportRow(rows[index], channel);
+      if (!mapped.order_key || !mapped.tracking_id || !mapped.items[0]?.sku) {
+        throw new Error(`Row ${index + 2}: missing order, tracking, or sku`);
+      }
+
+      const existing = await lookupOnly(mapped.tracking_id) || await lookupOnly(mapped.order_key);
+      if (existing && deduplicationAction !== "overwrite") {
+        stats.ignored_count += 1;
+        continue;
+      }
+
+      if (existing && deduplicationAction === "overwrite") {
+        await updateFirebaseOrder(existing.id, {
+          ...mapped,
+          items: mapped.items.map((item) => ({
+            id: uid(),
+            sku: item.sku,
+            product_name: item.product_name || null,
+            quantity_required: Number(item.quantity_required || 1),
+            quantity_scanned: 0,
+            status: "pending",
+            created_at: nowIso(),
+            updated_at: nowIso()
+          })),
+          status: "Ready to Pack",
+          source_file_name: file.name,
+          deduplication_action: "overwritten",
+          ready_to_pack_at: nowIso()
+        });
+        stats.overwritten_count += 1;
+      } else {
+        await createFirebaseOrder({
+          ...mapped,
+          source_file_name: file.name
+        });
+        stats.created_count += 1;
+      }
+    } catch (error) {
+      stats.error_count += 1;
+      stats.errors.push(error.message);
+    }
+  }
+
+  stats.status = stats.error_count ? "completed_with_errors" : "completed";
+  const batch = {
+    ...stats,
+    id: stats.batch_id,
+    source: "file",
+    channel,
+    file_name: file.name,
+    deduplication_action: deduplicationAction,
+    created_at: nowIso(),
+    completed_at: nowIso()
+  };
+  await setDoc(doc(db, "import_batches", stats.batch_id), batch);
+  return stats;
 }
 
 export async function firebaseSummary() {

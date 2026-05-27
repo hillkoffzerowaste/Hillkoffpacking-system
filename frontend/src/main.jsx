@@ -30,6 +30,7 @@ import {
   dispatchFirebaseOrder,
   firebaseSummary,
   identifyFirebasePacker,
+  importFirebaseFile,
   listFirebaseBatches,
   listFirebaseOrders,
   listFirebasePackers,
@@ -95,6 +96,13 @@ async function firebaseApi(path, options = {}) {
   if (path === "/imports/batches") return { batches: await listFirebaseBatches() };
   if (path === "/scan-events") return { events: await listFirebaseScanEvents() };
   if (path === "/demo/reset" && method === "POST") return resetFirebaseDemo();
+  if (path === "/imports/orders" && method === "POST" && options.body instanceof FormData) {
+    return importFirebaseFile({
+      file: options.body.get("file"),
+      channel: options.body.get("channel"),
+      deduplicationAction: options.body.get("deduplication_action") || "ignore"
+    });
+  }
   if (path === "/orders" && method === "POST") return createFirebaseOrder(body);
   if (path.startsWith("/orders?")) {
     const params = new URLSearchParams(path.split("?")[1]);
