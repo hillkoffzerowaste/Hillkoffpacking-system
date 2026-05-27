@@ -24,6 +24,7 @@ coverage/
 Thumbs.db
 .vscode/
 .idea/
+.vercel/
 
 # Imported operational files
 backend/data/
