@@ -25,6 +25,7 @@ import "./styles.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:4000/api";
 const LOCAL_STORE_KEY = "hillkoff-packing-local-db-v1";
+const DATA_MODE = import.meta.env.VITE_DATA_MODE || "api";
 
 const NAV_ITEMS = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -38,6 +39,10 @@ const NAV_ITEMS = [
 ];
 
 async function api(path, options = {}) {
+  if (DATA_MODE === "local") {
+    return localApi(path, options);
+  }
+
   try {
     const response = await fetch(`${API_BASE}${path}`, {
       headers: options.body instanceof FormData ? undefined : { "Content-Type": "application/json" },

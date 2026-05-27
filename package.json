@@ -10,10 +10,11 @@
   "scripts": {
     "dev": "concurrently \"npm run dev -w backend\" \"npm run dev -w frontend\"",
     "build": "npm run build -w frontend",
+    "build:vercel": "npm run build -w frontend",
+    "build:pages": "npm run build -w frontend",
     "test": "npm run test -w backend"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
   }
 }
-

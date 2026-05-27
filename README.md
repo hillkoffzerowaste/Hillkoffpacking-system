@@ -29,6 +29,7 @@
 - [API Specification](docs/api-spec.md)
 - [User Flow](docs/user-flow.md)
 - [GitHub Issues Backlog](docs/github-issues.md)
+- [Vercel and Firebase Deploy Notes](docs/deploy-vercel-firebase.md)
 
 ## Full Web Application
 
@@ -61,6 +62,24 @@ https://hillkoffzerowaste.github.io/Hillkoffpacking-system/
 ```
 
 On GitHub Pages, the app runs in browser local mode because GitHub Pages cannot run the Express/SQLite backend. Manual order entry, packing scan, dispatch scan, audit log, packers, and shipping providers are stored in the browser's `localStorage`.
+
+Vercel deployment files are included:
+
+```text
+vercel.json
+frontend/.env.example
+.env.example
+```
+
+Firebase preparation files are included:
+
+```text
+frontend/src/lib/firebase.js
+frontend/src/lib/firebaseAdapter.js
+firebase.json
+firestore.rules
+firestore.indexes.json
+```
 
 Demo scan values:
 
