@@ -153,7 +153,12 @@ function parseCsv(text) {
 }
 
 function spreadsheetRowsToRecords(rows, channel, sourceName) {
+  if (!Array.isArray(rows)) {
+    throw new Error(`${sourceName} could not be parsed. Please check that the first sheet has a header row and order data.`);
+  }
+
   const normalizedRows = rows
+    .filter((row) => Array.isArray(row))
     .map((row) => row.map((cell) => String(cell ?? "").trim()))
     .filter((row) => row.some(Boolean));
 
@@ -175,7 +180,8 @@ function spreadsheetRowsToRecords(rows, channel, sourceName) {
 }
 
 async function parseExcel(file, channel) {
-  const rows = await readXlsxFile(file);
+  const sheets = await readXlsxFile(file, { sheets: [1] });
+  const rows = Array.isArray(sheets) && sheets[0]?.data ? sheets[0].data : sheets;
   return spreadsheetRowsToRecords(rows, channel, "Excel file");
 }
 
