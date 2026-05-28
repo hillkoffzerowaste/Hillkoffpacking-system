@@ -23,7 +23,7 @@ import {
   Users
 } from "lucide-react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
-import { parseImportFile, recordsToCsv } from "./lib/importParser";
+import { parseImportFileAuto, recordsToCsv } from "./lib/importParser";
 import {
   createFirebaseOrder,
   createFirebasePacker,
@@ -744,7 +744,7 @@ function DashboardPage({ summary, readyOrders, onDemoReset, busy }) {
 }
 
 function ImportPage({ onRefresh }) {
-  const [channel, setChannel] = useState("shopee");
+  const [detectedChannel, setDetectedChannel] = useState("");
   const [dedupe, setDedupe] = useState("ignore");
   const [file, setFile] = useState(null);
   const [convertedFile, setConvertedFile] = useState(null);
@@ -776,17 +776,10 @@ function ImportPage({ onRefresh }) {
     setFile(nextFile);
     setConvertedFile(null);
     setConvertedRows([]);
+    setDetectedChannel("");
     setConvertError("");
     setResult(null);
     setError("");
-  }
-
-  function selectChannel(nextChannel) {
-    setChannel(nextChannel);
-    setConvertedFile(null);
-    setConvertedRows([]);
-    setConvertError("");
-    setResult(null);
   }
 
   async function convertSelectedFile() {
@@ -799,15 +792,18 @@ function ImportPage({ onRefresh }) {
     setConvertError("");
     setError("");
     try {
-      const rows = await parseImportFile(file, channel);
+      const parsed = await parseImportFileAuto(file);
+      const rows = parsed.rows;
       const csv = recordsToCsv(rows);
       const csvName = file.name.replace(/\.[^.]+$/, "") || "orders";
       const nextFile = new File([csv], `${csvName}.csv`, { type: "text/csv;charset=utf-8" });
       setConvertedFile(nextFile);
       setConvertedRows(rows);
+      setDetectedChannel(parsed.channel);
     } catch (err) {
       setConvertedFile(null);
       setConvertedRows([]);
+      setDetectedChannel("");
       setConvertError(err.message);
     } finally {
       setConverting(false);
@@ -827,7 +823,7 @@ function ImportPage({ onRefresh }) {
     try {
       const form = new FormData();
       form.append("file", importFile);
-      form.append("channel", channel);
+      form.append("channel", detectedChannel || "auto");
       form.append("deduplication_action", dedupe);
       const data = await api("/imports/orders", { method: "POST", body: form });
       setResult(data);
@@ -846,14 +842,10 @@ function ImportPage({ onRefresh }) {
         <section className="panel">
           <div className="panelHeader"><Upload size={20} /><h3>เลือกไฟล์และแปลงข้อมูล</h3></div>
           <form className="formGrid" onSubmit={submit}>
-            <label>ช่องทางออเดอร์
-              <select value={channel} onChange={(event) => selectChannel(event.target.value)}>
-                <option value="shopee">Shopee</option>
-                <option value="lazada">Lazada</option>
-                <option value="tiktok">TikTok</option>
-                <option value="reservation">ใบสั่งจองทั่วไป</option>
-              </select>
-            </label>
+            <div className="fieldNote">
+              <strong>ตรวจช่องทางอัตโนมัติ</strong>
+              <span>{detectedChannel ? `ระบบตรวจพบ: ${channelLabel(detectedChannel)}` : "ระบบจะอ่านหัวตารางแล้วเลือก Shopee, Lazada หรือ TikTok ให้เอง"}</span>
+            </div>
             <label>เมื่อเจอออเดอร์ซ้ำ
               <select value={dedupe} onChange={(event) => setDedupe(event.target.value)}>
                 <option value="ignore">ข้ามรายการซ้ำ</option>

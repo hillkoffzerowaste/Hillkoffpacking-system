@@ -12,7 +12,7 @@ import {
   where
 } from "firebase/firestore";
 import { ensureFirebaseAuth, getFirebaseServices } from "./firebase";
-import { mapImportRow, parseImportFile } from "./importParser";
+import { mapImportRow, parseImportFileAuto } from "./importParser";
 
 const DEFAULT_PROVIDERS = [
   { id: "JNT", code: "JNT", name: "J&T Express", display_name: "J&T Express", active: 1 },
@@ -343,10 +343,14 @@ export async function resetFirebaseDemo() {
 export async function importFirebaseFile({ file, channel, deduplicationAction }) {
   await ensureFirebaseReady();
   const db = requireFirestore();
-  const rows = await parseImportFile(file, channel);
+  const parsed = await parseImportFileAuto(file);
+  const rows = parsed.rows;
+  const detectedChannel = channel && channel !== "auto" ? channel : parsed.channel;
   const stats = {
     batch_id: uid(),
     status: "completed",
+    channel: detectedChannel,
+    detected_channel: parsed.channel,
     total_rows: rows.length,
     created_count: 0,
     ignored_count: 0,
@@ -357,7 +361,7 @@ export async function importFirebaseFile({ file, channel, deduplicationAction })
 
   for (let index = 0; index < rows.length; index += 1) {
     try {
-      const mapped = mapImportRow(rows[index], channel);
+      const mapped = mapImportRow(rows[index], detectedChannel);
       if (!mapped.order_key || !mapped.tracking_id || !mapped.items[0]?.sku) {
         throw new Error(`Row ${index + 2}: missing order, tracking, or sku`);
       }
@@ -405,7 +409,8 @@ export async function importFirebaseFile({ file, channel, deduplicationAction })
     ...stats,
     id: stats.batch_id,
     source: "file",
-    channel,
+    channel: detectedChannel,
+    detected_channel: parsed.channel,
     file_name: file.name,
     deduplication_action: deduplicationAction,
     created_at: nowIso(),

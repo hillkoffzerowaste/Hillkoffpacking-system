@@ -309,6 +309,28 @@ input:disabled {
   margin: 16px 0;
 }
 
+.fieldNote {
+  background: #f7faf4;
+  border: 1px solid #dce4d8;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  min-height: 72px;
+  padding: 12px;
+}
+
+.fieldNote strong {
+  color: #153b2f;
+  font-size: 14px;
+}
+
+.fieldNote span {
+  color: #637163;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
 .converterBox {
   align-items: center;
   background: #f4f7f1;

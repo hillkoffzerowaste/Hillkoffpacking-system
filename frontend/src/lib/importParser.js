@@ -1,10 +1,30 @@
 import JSZip from "jszip";
 
+function normalizeKey(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/^\uFEFF/, "")
+    .replace(/[^a-z0-9ก-๙]+/g, "");
+}
+
 function value(row, names) {
   for (const name of names) {
     const item = row[name];
     if (item !== undefined && item !== null && String(item).trim() !== "") return String(item).trim();
   }
+
+  const entries = Object.entries(row || {});
+  for (const name of names) {
+    const wanted = normalizeKey(name);
+    if (wanted.length < 4) continue;
+    const found = entries.find(([key, item]) => {
+      if (item === undefined || item === null || String(item).trim() === "") return false;
+      const candidate = normalizeKey(key);
+      return candidate === wanted || candidate.includes(wanted) || wanted.includes(candidate);
+    });
+    if (found) return String(found[1]).trim();
+  }
+
   return "";
 }
 
@@ -19,6 +39,68 @@ function decodeXml(valueText) {
 
 function normalizeHeader(text) {
   return String(text || "").trim();
+}
+
+function channelScoreFromHeaders(headers, fileName = "") {
+  const joined = [...headers, fileName].map(normalizeKey).join(" ");
+  const includesAny = (patterns) => patterns.some((pattern) => joined.includes(normalizeKey(pattern)));
+  return {
+    lazada: [
+      includesAny(["orderItemId"]),
+      includesAny(["orderNumber"]),
+      includesAny(["trackingCode"]),
+      includesAny(["sellerSku"]),
+      includesAny(["lazada"])
+    ].filter(Boolean).length,
+    shopee: [
+      includesAny(["หมายเลขคำสั่งซื้อ", "Order SN"]),
+      includesAny(["หมายเลขติดตามพัสดุ", "Tracking Number"]),
+      includesAny(["เลขอ้างอิง SKU", "SKU Reference No."]),
+      includesAny(["ชื่อผู้ใช้", "Shopee"])
+    ].filter(Boolean).length,
+    tiktok: [
+      includesAny(["Order ID"]),
+      includesAny(["Tracking ID"]),
+      includesAny(["Seller SKU"]),
+      includesAny(["SKU ID"]),
+      includesAny(["TikTok"])
+    ].filter(Boolean).length,
+    reservation: [
+      includesAny(["เลขที่ใบสั่งจอง", "reservation_no"]),
+      includesAny(["รหัสสินค้า"]),
+      includesAny(["ใบสั่งจอง"])
+    ].filter(Boolean).length
+  };
+}
+
+function cleanRecords(records) {
+  return (records || []).filter((record) => {
+    const text = Object.values(record || {}).join(" ").toLowerCase();
+    const instructionHits = [
+      "platform unique order id",
+      "current order status",
+      "seller sku input",
+      "platform product name",
+      "sku sold quantity",
+      "tracking number"
+    ].filter((hint) => text.includes(hint)).length;
+    return instructionHits < 2;
+  });
+}
+
+export function detectImportChannel(records, fileName = "") {
+  const headerSet = new Set();
+  for (const record of records || []) {
+    Object.keys(record || {}).forEach((key) => headerSet.add(key));
+    if (headerSet.size >= 80) break;
+  }
+
+  const scores = channelScoreFromHeaders([...headerSet], fileName);
+  const [bestChannel, bestScore] = Object.entries(scores)
+    .sort((left, right) => right[1] - left[1])[0] || ["reservation", 0];
+
+  if (bestScore <= 0) return "reservation";
+  return bestChannel;
 }
 
 function looksLikeHeader(line, channel) {
@@ -252,12 +334,12 @@ function parseCsv(text) {
     const cleanHeader = String(header || "").trim();
     return index === 0 ? cleanHeader.replace(/^\uFEFF/, "") : cleanHeader;
   }) || [];
-  return rows.slice(1)
+  return cleanRecords(rows.slice(1)
     .map((row) => headers.reduce((record, header, index) => {
       if (header) record[header] = String(row[index] || "").trim();
       return record;
     }, {}))
-    .filter((record) => Object.values(record).some(Boolean));
+    .filter((record) => Object.values(record).some(Boolean)));
 }
 
 function csvValue(valueText) {
@@ -309,7 +391,7 @@ function spreadsheetRowsToRecords(rows, channel, sourceName) {
     throw new Error(`${sourceName} could not be parsed. Please check that the first sheet has a header row and order data.`);
   }
 
-  return records;
+  return cleanRecords(records);
 }
 
 function xmlAttribute(tag, name) {
@@ -446,6 +528,12 @@ export async function parseImportFile(file, channel) {
   throw new Error("Firebase import supports CSV, XLSX, and text-based XPS files.");
 }
 
+export async function parseImportFileAuto(file) {
+  const rows = await parseImportFile(file, "shopee");
+  const channel = detectImportChannel(rows, file.name);
+  return { rows, channel };
+}
+
 export function mapImportRow(row, channel) {
   if (channel === "shopee") {
     const orderKey = value(row, ["หมายเลขคำสั่งซื้อ", "Order ID", "order_id"]);
@@ -456,7 +544,7 @@ export function mapImportRow(row, channel) {
       customer_name: value(row, ["ชื่อผู้รับ", "ชื่อลูกค้า", "Customer Name"]),
       shipping_provider_code: providerCode(value(row, ["ขนส่ง", "Shipping Provider", "Logistics Channel"]), channel),
       items: [{
-        sku: value(row, ["เลขอ้างอิง SKU", "SKU Reference No.", "sku"]),
+        sku: value(row, ["เลขอ้างอิง SKU", "เลขอ้างอิง SKU (SKU Reference No.)", "SKU Reference No.", "sku"]),
         product_name: value(row, ["ชื่อสินค้า", "Product Name"]),
         quantity_required: quantity(value(row, ["จำนวน", "Quantity", "qty"]))
       }]
@@ -486,7 +574,7 @@ export function mapImportRow(row, channel) {
       channel,
       order_key: orderKey,
       tracking_id: value(row, ["Tracking ID", "tracking_id"]) || orderKey,
-      customer_name: value(row, ["Recipient", "Customer Name", "ชื่อลูกค้า"]),
+      customer_name: value(row, ["Recipient", "Recipient Name", "Buyer Username", "Customer Name", "ชื่อลูกค้า"]),
       shipping_provider_code: providerCode(value(row, ["Shipping Provider", "Delivery Option", "ขนส่ง"]), channel),
       items: [{
         sku: value(row, ["Seller SKU", "sku"]),
