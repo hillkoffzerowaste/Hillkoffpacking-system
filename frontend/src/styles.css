@@ -580,6 +580,46 @@ input:disabled {
   gap: 10px;
 }
 
+.salesScannerPanel {
+  background: #17372f;
+  border-radius: 8px;
+  box-shadow: 0 16px 34px rgba(17, 46, 38, 0.16);
+  color: #fff;
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.salesScannerPanel label {
+  color: #e5f6ed;
+}
+
+.salesSummaryGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+}
+
+.salesToolbar {
+  align-items: end;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.salesToolbar label {
+  max-width: 220px;
+  width: 100%;
+}
+
+.toolbarActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 .routeRow,
 .compactOrder {
   align-items: center;
@@ -867,7 +907,8 @@ dd {
   .contentGrid.two,
   .stationGrid,
   .ordersGrid,
-  .metricsGrid {
+  .metricsGrid,
+  .salesSummaryGrid {
     grid-template-columns: 1fr;
   }
 }
@@ -910,5 +951,22 @@ dd {
   .converterBox {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .salesToolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .salesToolbar label {
+    max-width: none;
+  }
+
+  .toolbarActions {
+    justify-content: stretch;
+  }
+
+  .toolbarActions button {
+    flex: 1 1 150px;
   }
 }

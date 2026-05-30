@@ -18,6 +18,10 @@ service cloud.firestore {
       allow read, write: if operator();
     }
 
+    match /sales_dispatch_scans/{scanId} {
+      allow read, write: if operator();
+    }
+
     match /packers/{packerId} {
       allow read, write: if operator();
     }

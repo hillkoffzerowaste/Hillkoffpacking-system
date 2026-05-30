@@ -32,6 +32,14 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function localDateKey() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function uid() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -318,6 +326,54 @@ export async function listFirebaseScanEvents() {
     const packer = packers.find((item) => item.id === event.packer_id);
     return { ...event, order_key: order?.order_key, tracking_id: order?.tracking_id, packer_name: packer?.display_name };
   });
+}
+
+export async function listFirebaseSalesDispatchScans({ date } = {}) {
+  await ensureFirebaseReady();
+  const db = requireFirestore();
+  const dateKey = date || localDateKey();
+  const snapshot = await getDocs(query(
+    collection(db, "sales_dispatch_scans"),
+    where("date_key", "==", dateKey),
+    limit(500)
+  ));
+  return snapshot.docs
+    .map((item) => ({ id: item.id, ...item.data() }))
+    .sort((left, right) => String(right.scanned_at || "").localeCompare(String(left.scanned_at || "")));
+}
+
+export async function recordFirebaseSalesDispatchScan(value) {
+  await ensureFirebaseReady();
+  const db = requireFirestore();
+  const order = await lookupOnly(value);
+  if (!order) {
+    await addFirebaseScanEvent({ scan_type: "sales_ready_scan", scanned_value: value, result: "error", message: "Order not found" });
+    throw new Error("Order not found.");
+  }
+
+  const dateKey = localDateKey();
+  const id = `${dateKey}_${order.id}`;
+  const existing = await getDoc(doc(db, "sales_dispatch_scans", id));
+  const scannedAt = nowIso();
+  const record = {
+    id,
+    date_key: dateKey,
+    order_id: order.id,
+    order_key: order.order_key,
+    tracking_id: order.tracking_id,
+    channel: order.channel || "reservation",
+    customer_name: order.customer_name || null,
+    shipping_provider: order.shipping_provider || "ไม่ระบุขนส่ง",
+    status: order.status,
+    scanned_value: value,
+    scan_count: existing.exists() ? Number(existing.data().scan_count || 1) + 1 : 1,
+    scanned_at: scannedAt,
+    created_at: existing.exists() ? existing.data().created_at || scannedAt : scannedAt,
+    updated_at: scannedAt
+  };
+  await setDoc(doc(db, "sales_dispatch_scans", id), record, { merge: true });
+  await addFirebaseScanEvent({ order_id: order.id, scan_type: "sales_ready_scan", scanned_value: value, result: "success", message: order.channel || "reservation" });
+  return record;
 }
 
 export async function listFirebaseBatches() {

@@ -32,6 +32,7 @@ import {
   firebaseSummary,
   identifyFirebasePacker,
   importFirebaseFile,
+  listFirebaseSalesDispatchScans,
   listFirebaseBatches,
   listFirebaseOrders,
   listFirebasePackers,
@@ -40,6 +41,7 @@ import {
   listFirebaseScanEvents,
   lookupFirebaseOrder,
   resetFirebaseDemo,
+  recordFirebaseSalesDispatchScan,
   scanFirebaseSku,
   getFirebaseOrder
 } from "./lib/firebaseAdapter";
@@ -55,6 +57,7 @@ const NAV_ITEMS = [
   { id: "new-order", label: "2. เพิ่มออเดอร์เอง", icon: Plus },
   { id: "packing", label: "3. แพ็คสินค้า", icon: PackageCheck },
   { id: "dispatch", label: "4. ส่งมอบขนส่ง", icon: Send },
+  { id: "sales", label: "ฝ่ายขาย", icon: Archive },
   { id: "orders", label: "รายการออเดอร์", icon: ClipboardList },
   { id: "audit", label: "ประวัติสแกน", icon: FileClock },
   { id: "settings", label: "ตั้งค่า", icon: Settings }
@@ -66,6 +69,7 @@ const TITLE_LABELS = {
   "New Order Entry": "2. เพิ่มออเดอร์เอง",
   "Packing Station": "3. แพ็คสินค้า",
   "Final Sorting & Dispatch": "4. ส่งมอบขนส่ง",
+  "Sales Dispatch Sheet": "ฝ่ายขาย",
   "Order Control Center": "รายการออเดอร์",
   "Scan Audit": "ประวัติการสแกน",
   Settings: "ตั้งค่า"
@@ -77,6 +81,7 @@ const SUBTITLE_LABELS = {
   "New Order Entry": "ใช้สำหรับใบสั่งจองหรือออเดอร์ที่ไม่มีไฟล์นำเข้า กรอกแล้วส่งต่อไปหน้าแพ็ค",
   "Packing Station": "สแกนใบปะหน้าเพื่อดึงออเดอร์ แล้วสแกน SKU ทีละชิ้นให้ครบจำนวน",
   "Final Sorting & Dispatch": "สแกนกล่องที่ปิดแล้ว ระบบจะแสดงโซนขนส่งและเปลี่ยนสถานะเป็นส่งมอบแล้ว",
+  "Sales Dispatch Sheet": "สแกนใบปะหน้าด้วยมือถือเพื่อเก็บรายการพร้อมจัดส่งประจำวัน แยกตามแพลตฟอร์ม และส่งออกเป็นไฟล์สำหรับ Excel",
   "Order Control Center": "ค้นหา ตรวจสถานะ และเปิดดูรายละเอียดออเดอร์ทั้งหมด",
   "Scan Audit": "ดูย้อนหลังว่าใครสแกนอะไร ผ่านหรือไม่ผ่าน ใช้ตรวจปัญหาได้",
   Settings: "จัดการพนักงานแพ็คและรายชื่อขนส่งที่ใช้ในระบบ"
@@ -107,7 +112,8 @@ const SCAN_TYPE_LABELS = {
   packer: "ระบุคนแพ็ค",
   order_lookup: "ค้นหาออเดอร์",
   item_verify: "ตรวจสินค้า",
-  final_dispatch: "ยืนยันส่งออก"
+  final_dispatch: "ยืนยันส่งออก",
+  sales_ready_scan: "ฝ่ายขายบันทึกพร้อมส่ง"
 };
 
 const RESULT_LABELS = {
@@ -180,6 +186,13 @@ async function firebaseApi(path, options = {}) {
   if (path === "/orders/ready") return { orders: await listFirebaseReadyOrders() };
   if (path === "/imports/batches") return { batches: await listFirebaseBatches() };
   if (path === "/scan-events") return { events: await listFirebaseScanEvents() };
+  if (path.startsWith("/sales/dispatch-scans") && method === "GET") {
+    const params = new URLSearchParams(path.split("?")[1] || "");
+    return { scans: await listFirebaseSalesDispatchScans({ date: params.get("date") || "" }) };
+  }
+  if (path === "/sales/dispatch-scans" && method === "POST") {
+    return { scan: await recordFirebaseSalesDispatchScan(body.tracking_or_order_id) };
+  }
   if (path === "/demo/reset" && method === "POST") return resetFirebaseDemo();
   if (path === "/imports/orders" && method === "POST" && options.body instanceof FormData) {
     return importFirebaseFile({
@@ -223,7 +236,11 @@ function nowIso() {
 
 function readLocalDb() {
   const saved = localStorage.getItem(LOCAL_STORE_KEY);
-  if (saved) return JSON.parse(saved);
+  if (saved) {
+    const db = JSON.parse(saved);
+    db.salesScans ||= [];
+    return db;
+  }
 
   const createdAt = nowIso();
   const db = {
@@ -240,6 +257,7 @@ function readLocalDb() {
     orders: [],
     batches: [],
     events: [],
+    salesScans: [],
     created_at: createdAt
   };
   writeLocalDb(db);
@@ -454,6 +472,50 @@ async function localApi(path, options = {}) {
     };
   }
 
+  if (path.startsWith("/sales/dispatch-scans") && method === "GET") {
+    const params = new URLSearchParams(path.split("?")[1] || "");
+    const dateKey = params.get("date") || todayKey();
+    return {
+      scans: db.salesScans
+        .filter((scan) => scan.date_key === dateKey)
+        .sort((left, right) => String(right.scanned_at || "").localeCompare(String(left.scanned_at || "")))
+    };
+  }
+
+  if (path === "/sales/dispatch-scans" && method === "POST") {
+    const order = findLocalOrders(db, body.tracking_or_order_id)[0];
+    if (!order) {
+      addLocalEvent(db, { scan_type: "sales_ready_scan", scanned_value: body.tracking_or_order_id, result: "error", message: "Order not found" });
+      writeLocalDb(db);
+      throw new Error("Order not found.");
+    }
+    const dateKey = todayKey();
+    const id = `${dateKey}_${order.id}`;
+    const existing = db.salesScans.find((scan) => scan.id === id);
+    const scannedAt = nowIso();
+    const record = {
+      id,
+      date_key: dateKey,
+      order_id: order.id,
+      order_key: order.order_key,
+      tracking_id: order.tracking_id,
+      channel: order.channel || "reservation",
+      customer_name: order.customer_name || null,
+      shipping_provider: order.shipping_provider || "ไม่ระบุขนส่ง",
+      status: order.status,
+      scanned_value: body.tracking_or_order_id,
+      scan_count: existing ? Number(existing.scan_count || 1) + 1 : 1,
+      scanned_at: scannedAt,
+      created_at: existing?.created_at || scannedAt,
+      updated_at: scannedAt
+    };
+    if (existing) Object.assign(existing, record);
+    else db.salesScans.unshift(record);
+    addLocalEvent(db, { order_id: order.id, scan_type: "sales_ready_scan", scanned_value: body.tracking_or_order_id, result: "success", message: order.channel || "reservation" });
+    writeLocalDb(db);
+    return { scan: record };
+  }
+
   if (path === "/packing/session" && method === "POST") {
     const packer = db.packers.find((item) => item.barcode === body.packer_barcode);
     if (!packer) throw new Error("Packer barcode not found.");
@@ -563,6 +625,44 @@ function formatDate(value) {
     dateStyle: "short",
     timeStyle: "short"
   }).format(new Date(value));
+}
+
+function todayKey() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportRecordsAsExcel(records, fileName) {
+  if (!records.length) return;
+  const headers = Object.keys(records[0]);
+  const escapeHtml = (value) => String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;");
+  const table = [
+    "<table><thead><tr>",
+    headers.map((header) => `<th>${escapeHtml(header)}</th>`).join(""),
+    "</tr></thead><tbody>",
+    records.map((record) => `<tr>${headers.map((header) => `<td>${escapeHtml(record[header])}</td>`).join("")}</tr>`).join(""),
+    "</tbody></table>"
+  ].join("");
+  const html = `\uFEFF<html><head><meta charset="utf-8" /></head><body>${table}</body></html>`;
+  downloadBlob(new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" }), fileName);
 }
 
 function StatusBadge({ status }) {
@@ -1278,6 +1378,155 @@ function DispatchPage({ onRefresh }) {
   );
 }
 
+function SalesDispatchPage() {
+  const [lookup, setLookup] = useState("");
+  const [date, setDate] = useState(todayKey());
+  const [scans, setScans] = useState([]);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const inputRef = useRef(null);
+
+  async function loadScans(nextDate = date) {
+    const data = await api(`/sales/dispatch-scans?date=${encodeURIComponent(nextDate)}`);
+    setScans(data.scans || []);
+  }
+
+  useEffect(() => {
+    loadScans().catch((err) => setError(err.message));
+  }, []);
+
+  const channelSummary = useMemo(() => {
+    return Object.values(scans.reduce((acc, scan) => {
+      const channel = scan.channel || "reservation";
+      acc[channel] ||= { channel, count: 0 };
+      acc[channel].count += 1;
+      return acc;
+    }, {})).sort((left, right) => channelLabel(left.channel).localeCompare(channelLabel(right.channel)));
+  }, [scans]);
+
+  const exportRows = useMemo(() => scans.map((scan) => ({
+    "วันที่": scan.date_key,
+    "เวลาสแกน": formatDate(scan.scanned_at),
+    "แพลตฟอร์ม": channelLabel(scan.channel),
+    "เลขพัสดุ": scan.tracking_id,
+    "เลขออเดอร์": scan.order_key,
+    "ลูกค้า": scan.customer_name || "",
+    "ขนส่ง": scan.shipping_provider || "",
+    "สถานะ": statusLabel(scan.status),
+    "จำนวนครั้งที่สแกน": scan.scan_count || 1
+  })), [scans]);
+
+  async function scanSalesDispatch(event) {
+    event.preventDefault();
+    const value = lookup.trim();
+    if (!value) return;
+    setError("");
+    setMessage("");
+    try {
+      const data = await api("/sales/dispatch-scans", {
+        method: "POST",
+        body: JSON.stringify({ tracking_or_order_id: value })
+      });
+      setMessage(`บันทึกแล้ว: ${channelLabel(data.scan.channel)} / ${data.scan.tracking_id}`);
+      setLookup("");
+      await loadScans(todayKey());
+      setDate(todayKey());
+      inputRef.current?.focus();
+    } catch (err) {
+      setError(err.message);
+      playErrorSound();
+    }
+  }
+
+  async function changeDate(nextDate) {
+    setDate(nextDate);
+    setError("");
+    await loadScans(nextDate);
+  }
+
+  function exportCsv() {
+    if (!exportRows.length) return;
+    const csv = recordsToCsv(exportRows);
+    downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), `sales-dispatch-${date}.csv`);
+  }
+
+  function exportExcel() {
+    exportRecordsAsExcel(exportRows, `sales-dispatch-${date}.xls`);
+  }
+
+  return (
+    <div className="pageStack">
+      <PageTitle
+        icon={Archive}
+        title="Sales Dispatch Sheet"
+        subtitle="สแกนใบปะหน้าสำหรับฝ่ายขาย แล้วส่งออกเป็นรายงานประจำวัน"
+        action={<button className="secondary" onClick={() => loadScans()}><RefreshCw size={18} />รีเฟรช</button>}
+      />
+
+      <section className="salesScannerPanel">
+        <div className="scanHelperBar dark">
+          <span><Barcode size={18} />สแกนใบปะหน้าด้วยเครื่องสแกนหรือกล้องมือถือ</span>
+          <button type="button" className="scanModeButton" onClick={() => inputRef.current?.focus()}>สแกนใบปะหน้า</button>
+          <button type="button" className="scanModeButton camera" onClick={() => setCameraOpen(true)}><Camera size={18} />ใช้กล้องมือถือ</button>
+        </div>
+        <form className="dispatchForm" onSubmit={scanSalesDispatch}>
+          <label>Tracking ID หรือ Order ID
+            <input ref={inputRef} value={lookup} onChange={(event) => setLookup(event.target.value)} placeholder="ยิงบาร์โค้ดใบปะหน้าหรือพิมพ์เลข" />
+          </label>
+          <button className="primary"><Archive size={20} />บันทึกฝ่ายขาย</button>
+        </form>
+        {message && <Alert>{message}</Alert>}
+        {error && <Alert type="error">{error}</Alert>}
+        {cameraOpen && (
+          <CameraScanner
+            title="ใช้กล้องสแกนใบปะหน้า"
+            onResult={setLookup}
+            onClose={() => setCameraOpen(false)}
+          />
+        )}
+      </section>
+
+      <div className="salesSummaryGrid">
+        <Metric label="รวมวันนี้/วันที่เลือก" value={scans.length} />
+        {channelSummary.map((item) => (
+          <Metric key={item.channel} label={channelLabel(item.channel)} value={item.count} tone="ok" />
+        ))}
+      </div>
+
+      <section className="panel">
+        <div className="panelHeader">
+          <FileClock size={20} />
+          <h3>รายการพร้อมจัดส่งของฝ่ายขาย</h3>
+        </div>
+        <div className="salesToolbar">
+          <label>วันที่
+            <input type="date" value={date} onChange={(event) => changeDate(event.target.value)} />
+          </label>
+          <div className="toolbarActions">
+            <button className="secondary" disabled={!exportRows.length} onClick={exportCsv}><FileClock size={18} />ส่งออก CSV</button>
+            <button className="primary" disabled={!exportRows.length} onClick={exportExcel}><Archive size={18} />ส่งออก Excel</button>
+          </div>
+        </div>
+        <DataTable
+          columns={["เวลา", "แพลตฟอร์ม", "เลขพัสดุ", "เลขออเดอร์", "ลูกค้า", "ขนส่ง", "สถานะ", "สแกนซ้ำ"]}
+          rows={scans.map((scan) => [
+            formatDate(scan.scanned_at),
+            channelLabel(scan.channel),
+            scan.tracking_id,
+            scan.order_key,
+            scan.customer_name || "-",
+            scan.shipping_provider || "-",
+            <StatusBadge status={scan.status} />,
+            scan.scan_count || 1
+          ])}
+          empty="ยังไม่มีรายการที่ฝ่ายขายสแกนในวันที่เลือก"
+        />
+      </section>
+    </div>
+  );
+}
+
 function OrdersPage({ onRefresh }) {
   const [orders, setOrders] = useState([]);
   const [filters, setFilters] = useState({ q: "", status: "", channel: "" });
@@ -1570,6 +1819,7 @@ function App() {
     import: <ImportPage onRefresh={refresh} />,
     packing: <PackingPage readyOrders={readyOrders} onRefresh={refresh} initialLookup={packingLookup} />,
     dispatch: <DispatchPage onRefresh={refresh} />,
+    sales: <SalesDispatchPage />,
     orders: <OrdersPage onRefresh={refresh} />,
     audit: <AuditPage />,
     settings: <SettingsPage onRefresh={refresh} />
