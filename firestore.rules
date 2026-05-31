@@ -33,5 +33,9 @@ service cloud.firestore {
     match /import_batches/{batchId} {
       allow read, write: if operator();
     }
+
+    match /product_barcodes/{barcodeId} {
+      allow read, write: if operator();
+    }
   }
 }

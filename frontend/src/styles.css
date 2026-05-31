@@ -301,7 +301,7 @@ input:disabled {
 }
 
 .scanForm {
-  grid-template-columns: 1fr 120px auto;
+  grid-template-columns: 1fr 120px auto auto;
 }
 
 .filterBar {

@@ -43,7 +43,7 @@ export function mapImportRow(row, channel) {
       orderItemId: "",
       customerName: value(row, ["ชื่อผู้รับ", "ชื่อลูกค้า", "Customer Name"]),
       shippingProviderCode: providerCode(value(row, ["ขนส่ง", "Shipping Provider", "Logistics Channel"]), channel),
-      sku: value(row, ["เลขอ้างอิง SKU", "SKU Reference No.", "sku"]),
+      sku: value(row, ["เลขอ้างอิง Parent SKU", "Parent SKU", "เลขอ้างอิง SKU", "SKU Reference No.", "sku"]),
       productName: value(row, ["ชื่อสินค้า", "Product Name"]),
       quantityRequired: quantityValue(value(row, ["จำนวน", "Quantity", "qty"]))
     };
@@ -73,7 +73,7 @@ export function mapImportRow(row, channel) {
       trackingId: value(row, ["Tracking ID", "tracking_id"]) || orderKey,
       orderItemId: "",
       customerName: value(row, ["Recipient", "Customer Name", "ชื่อลูกค้า"]),
-      shippingProviderCode: providerCode(value(row, ["Shipping Provider", "Delivery Option", "ขนส่ง"]), channel),
+      shippingProviderCode: providerCode(value(row, ["Shipping Provider Name", "Shipping Provider", "Delivery Option", "ขนส่ง"]), channel),
       sku: value(row, ["Seller SKU", "sku"]),
       productName: value(row, ["Product Name", "ชื่อสินค้า"]),
       quantityRequired: quantityValue(value(row, ["Quantity", "จำนวน"]))

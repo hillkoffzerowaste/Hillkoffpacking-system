@@ -90,6 +90,18 @@ export function migrate() {
 
     create unique index if not exists idx_order_items_order_sku on order_items(order_id, sku);
 
+    create table if not exists product_barcodes (
+      barcode text primary key,
+      sku text not null,
+      product_name text,
+      created_at text not null,
+      updated_at text not null,
+      last_seen_at text,
+      scan_count integer not null default 0
+    );
+
+    create index if not exists idx_product_barcodes_sku on product_barcodes(sku);
+
     create table if not exists scan_events (
       id text primary key,
       order_id text,

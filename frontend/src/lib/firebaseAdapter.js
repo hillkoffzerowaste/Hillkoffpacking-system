@@ -27,6 +27,7 @@ const DEFAULT_PACKERS = [
 ];
 
 let readyPromise;
+let productBarcodeCache;
 
 function nowIso() {
   return new Date().toISOString();
@@ -56,6 +57,73 @@ async function all(collectionName) {
   const db = requireFirestore();
   const snapshot = await getDocs(collection(db, collectionName));
   return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+}
+
+function sameSku(left, right) {
+  return String(left || "").trim().toUpperCase() === String(right || "").trim().toUpperCase();
+}
+
+function productBarcodeDocId(barcode) {
+  return encodeURIComponent(String(barcode || "").trim());
+}
+
+async function getProductBarcodeCache() {
+  await ensureFirebaseReady();
+  if (productBarcodeCache) return productBarcodeCache;
+  productBarcodeCache = new Map();
+  const mappings = await all("product_barcodes");
+  for (const mapping of mappings) {
+    if (mapping.barcode && mapping.sku) productBarcodeCache.set(mapping.barcode, mapping);
+  }
+  return productBarcodeCache;
+}
+
+async function rememberFirebaseProductBarcode(barcode, item) {
+  const normalizedBarcode = String(barcode || "").trim();
+  if (!normalizedBarcode || sameSku(normalizedBarcode, item.sku)) return false;
+
+  const cache = await getProductBarcodeCache();
+  const now = nowIso();
+  const existing = cache.get(normalizedBarcode);
+  const record = {
+    barcode: normalizedBarcode,
+    sku: existing?.sku || item.sku,
+    product_name: item.product_name || existing?.product_name || null,
+    created_at: existing?.created_at || now,
+    updated_at: now,
+    last_seen_at: now,
+    scan_count: Number(existing?.scan_count || 0) + 1
+  };
+  const db = requireFirestore();
+  await setDoc(doc(db, "product_barcodes", productBarcodeDocId(normalizedBarcode)), record, { merge: true });
+  cache.set(normalizedBarcode, record);
+  return true;
+}
+
+async function resolveFirebaseScannedOrderItem(order, scannedSku) {
+  const directItem = order.items.find((candidate) => sameSku(candidate.sku, scannedSku));
+  if (directItem) return { item: directItem, mappedBarcode: false };
+
+  const barcode = String(scannedSku || "").trim();
+  const cache = await getProductBarcodeCache();
+  const savedMapping = cache.get(barcode);
+  if (savedMapping) {
+    const mappedItem = order.items.find((candidate) => sameSku(candidate.sku, savedMapping.sku));
+    if (mappedItem) {
+      await rememberFirebaseProductBarcode(barcode, mappedItem);
+      return { item: mappedItem, mappedBarcode: true };
+    }
+    return { error: "Barcode is linked to a SKU that is not in this order." };
+  }
+
+  const remainingItems = order.items.filter((candidate) => candidate.quantity_scanned < candidate.quantity_required);
+  const candidates = remainingItems.length ? remainingItems : order.items;
+  if (candidates.length === 1) {
+    await rememberFirebaseProductBarcode(barcode, candidates[0]);
+    return { item: candidates[0], mappedBarcode: true, newMapping: true };
+  }
+
+  return { error: "Barcode is not linked to a SKU yet." };
 }
 
 async function ensureSeedData() {
@@ -248,11 +316,12 @@ export async function scanFirebaseSku(orderId, scannedSku, packerId, quantity = 
     throw new Error("Scan quantity must be at least 1.");
   }
 
-  const item = order.items.find((candidate) => candidate.sku.toUpperCase() === String(scannedSku || "").trim().toUpperCase());
-  if (!item) {
-    await addFirebaseScanEvent({ order_id: order.id, packer_id: packerId || null, scan_type: "item_verify", scanned_value: scannedSku, result: "error", message: "SKU does not match this order" });
-    throw new Error("SKU does not match this order.");
+  const resolved = await resolveFirebaseScannedOrderItem(order, scannedSku);
+  if (resolved.error) {
+    await addFirebaseScanEvent({ order_id: order.id, packer_id: packerId || null, scan_type: "item_verify", scanned_value: scannedSku, result: "error", message: resolved.error });
+    throw new Error(resolved.error);
   }
+  const item = resolved.item;
 
   if (item.quantity_scanned >= item.quantity_required) {
     await addFirebaseScanEvent({ order_id: order.id, order_item_id: item.id, packer_id: packerId || null, scan_type: "item_verify", scanned_value: scannedSku, result: "error", message: "Quantity already completed" });
@@ -289,12 +358,20 @@ export async function scanFirebaseSku(orderId, scannedSku, packerId, quantity = 
     sku: nextItem.sku,
     scanned_sku: scannedSku,
     product_name: nextItem.product_name,
+    mapped_barcode: !!resolved.mappedBarcode,
+    new_barcode_mapping: !!resolved.newMapping,
     quantity_added: scanQuantity,
     quantity_scanned: nextItem.quantity_scanned,
     quantity_required: nextItem.quantity_required,
     item_status: nextItem.status,
     order_status: packed ? "Packed" : "Packing In Progress",
-    order: await getFirebaseOrder(order.id)
+    order: {
+      ...order,
+      items,
+      status: packed ? "Packed" : "Packing In Progress",
+      packed_by: order.packed_by || packerId || null,
+      packed_at: packed ? nowIso() : order.packed_at || null
+    }
   };
 }
 

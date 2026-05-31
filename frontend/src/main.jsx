@@ -143,6 +143,8 @@ function translateMessage(message) {
     "Order must be packed before dispatch.": "ต้องแพ็คสินค้าให้ครบก่อนส่งมอบขนส่ง",
     "Scan quantity must be at least 1.": "จำนวนที่สแกนต้องอย่างน้อย 1",
     "Scan quantity exceeds remaining quantity.": "จำนวนที่ใส่มากกว่าจำนวนสินค้าที่ยังเหลือในออเดอร์",
+    "Barcode is not linked to a SKU yet.": "บาร์โค้ดนี้ยังไม่ได้ผูกกับ SKU และออเดอร์นี้มีสินค้าหลายรายการ",
+    "Barcode is linked to a SKU that is not in this order.": "บาร์โค้ดนี้ผูกกับ SKU ที่ไม่มีในออเดอร์นี้",
     "At least one valid SKU item is required.": "ต้องมีสินค้าอย่างน้อย 1 รายการ",
     "Order key and tracking id are required.": "กรุณากรอกเลขออเดอร์และเลขพัสดุ",
     "Order or tracking already exists.": "ออเดอร์หรือเลขพัสดุนี้มีอยู่แล้ว"
@@ -241,6 +243,7 @@ function readLocalDb() {
   if (saved) {
     const db = JSON.parse(saved);
     db.salesScans ||= [];
+    db.productBarcodes ||= [];
     return db;
   }
 
@@ -259,6 +262,7 @@ function readLocalDb() {
     orders: [],
     batches: [],
     events: [],
+    productBarcodes: [],
     salesScans: [],
     created_at: createdAt
   };
@@ -313,6 +317,61 @@ function addLocalEvent(db, event) {
     message: event.message || null,
     created_at: nowIso()
   });
+}
+
+function sameSku(left, right) {
+  return String(left || "").trim().toUpperCase() === String(right || "").trim().toUpperCase();
+}
+
+function rememberLocalProductBarcode(db, barcode, item) {
+  const normalizedBarcode = String(barcode || "").trim();
+  if (!normalizedBarcode || sameSku(normalizedBarcode, item.sku)) return false;
+
+  const now = nowIso();
+  const existing = db.productBarcodes.find((mapping) => mapping.barcode === normalizedBarcode);
+  if (existing) {
+    existing.product_name = item.product_name || existing.product_name || null;
+    existing.updated_at = now;
+    existing.last_seen_at = now;
+    existing.scan_count = Number(existing.scan_count || 0) + 1;
+    return true;
+  }
+
+  db.productBarcodes.push({
+    barcode: normalizedBarcode,
+    sku: item.sku,
+    product_name: item.product_name || null,
+    created_at: now,
+    updated_at: now,
+    last_seen_at: now,
+    scan_count: 1
+  });
+  return true;
+}
+
+function resolveLocalScannedOrderItem(db, order, scannedSku) {
+  const directItem = order.items.find((candidate) => sameSku(candidate.sku, scannedSku));
+  if (directItem) return { item: directItem, mappedBarcode: false };
+
+  const barcode = String(scannedSku || "").trim();
+  const savedMapping = db.productBarcodes.find((mapping) => mapping.barcode === barcode);
+  if (savedMapping) {
+    const mappedItem = order.items.find((candidate) => sameSku(candidate.sku, savedMapping.sku));
+    if (mappedItem) {
+      rememberLocalProductBarcode(db, barcode, mappedItem);
+      return { item: mappedItem, mappedBarcode: true };
+    }
+    return { error: "Barcode is linked to a SKU that is not in this order." };
+  }
+
+  const remainingItems = order.items.filter((candidate) => candidate.quantity_scanned < candidate.quantity_required);
+  const candidates = remainingItems.length ? remainingItems : order.items;
+  if (candidates.length === 1) {
+    rememberLocalProductBarcode(db, barcode, candidates[0]);
+    return { item: candidates[0], mappedBarcode: true, newMapping: true };
+  }
+
+  return { error: "Barcode is not linked to a SKU yet." };
 }
 
 function resetLocalDemo() {
@@ -552,12 +611,13 @@ async function localApi(path, options = {}) {
     if (!Number.isInteger(scanQuantity) || scanQuantity < 1) {
       throw new Error("Scan quantity must be at least 1.");
     }
-    const item = order.items.find((candidate) => candidate.sku.toUpperCase() === scannedSku.toUpperCase());
-    if (!item) {
-      addLocalEvent(db, { order_id: order.id, packer_id: body.packer_id, scan_type: "item_verify", scanned_value: scannedSku, result: "error", message: "SKU does not match this order" });
+    const resolved = resolveLocalScannedOrderItem(db, order, scannedSku);
+    if (resolved.error) {
+      addLocalEvent(db, { order_id: order.id, packer_id: body.packer_id, scan_type: "item_verify", scanned_value: scannedSku, result: "error", message: resolved.error });
       writeLocalDb(db);
-      throw new Error("SKU does not match this order.");
+      throw new Error(resolved.error);
     }
+    const item = resolved.item;
     if (item.quantity_scanned >= item.quantity_required) {
       addLocalEvent(db, { order_id: order.id, order_item_id: item.id, packer_id: body.packer_id, scan_type: "item_verify", scanned_value: scannedSku, result: "error", message: "Quantity already completed" });
       writeLocalDb(db);
@@ -582,6 +642,8 @@ async function localApi(path, options = {}) {
       sku: item.sku,
       scanned_sku: scannedSku,
       product_name: item.product_name,
+      mapped_barcode: !!resolved.mappedBarcode,
+      new_barcode_mapping: !!resolved.newMapping,
       quantity_added: scanQuantity,
       quantity_scanned: item.quantity_scanned,
       quantity_required: item.quantity_required,
@@ -1235,7 +1297,7 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
         body: JSON.stringify({ scanned_sku: sku, quantity: scanQuantity, packer_id: null })
       });
       setOrder(data.order);
-      setMessage(`รหัสสินค้า ${data.sku} เพิ่ม ${data.quantity_added || scanQuantity}: ${data.quantity_scanned}/${data.quantity_required}`);
+      setMessage(`รหัสสินค้า ${data.sku} เพิ่ม ${data.quantity_added || scanQuantity}: ${data.quantity_scanned}/${data.quantity_required}${data.new_barcode_mapping ? " (จำคู่บาร์โค้ดแล้ว)" : ""}`);
       setSku("");
       setScanQuantity(1);
       await onRefresh();
@@ -1289,6 +1351,7 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
                   <input type="number" min="1" step="1" value={scanQuantity} onChange={(event) => setScanQuantity(event.target.value)} />
                 </label>
                 <button className="primary"><Barcode size={18} />สแกน</button>
+                <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "ใช้กล้องสแกน SKU", apply: setSku })}><Camera size={18} />แสกนกล้อง SKU</button>
               </form>
               <div className="itemList">
                 {order.items.map((item) => (
