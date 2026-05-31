@@ -102,7 +102,7 @@ router.get("/dashboard/summary", (_req, res) => {
     select coalesce(sp.display_name, 'Unassigned') as shipping_provider, count(*) as count
     from orders o
     left join shipping_providers sp on sp.id = o.shipping_provider_id
-    where o.status in ('Ready to Pack', 'Packing In Progress', 'Verified', 'Packed')
+    where o.status in ('Ready to Pack', 'Packing In Progress', 'Scan Completed', 'Verified', 'Packed')
     group by coalesce(sp.display_name, 'Unassigned')
     order by count desc
   `).all();
@@ -206,7 +206,7 @@ router.get("/orders/ready", (_req, res) => {
     select o.*, sp.display_name as shipping_provider
     from orders o
     left join shipping_providers sp on sp.id = o.shipping_provider_id
-    where o.status in ('Ready to Pack', 'Packing In Progress', 'Verified', 'Packed')
+    where o.status in ('Ready to Pack', 'Packing In Progress', 'Scan Completed', 'Verified', 'Packed')
     order by o.ready_to_pack_at desc
     limit 100
   `).all();
@@ -485,12 +485,11 @@ router.post("/packing/orders/:id/scan-item", (req, res) => {
     where order_id = ? and status != 'verified'
   `).get(order.id).count;
 
-  const orderStatus = remaining === 0 ? "Packed" : "Packing In Progress";
+  const orderStatus = remaining === 0 ? "Scan Completed" : "Packing In Progress";
   db.prepare(`
     update orders
     set status = @status,
         packed_by = coalesce(packed_by, @packerId),
-        packed_at = case when @status = 'Packed' then @now else packed_at end,
         updated_at = @now
     where id = @orderId
   `).run({ status: orderStatus, packerId, now, orderId: order.id });
@@ -517,6 +516,47 @@ router.post("/packing/orders/:id/scan-item", (req, res) => {
     quantity_required: item.quantity_required,
     item_status: itemStatus,
     order_status: orderStatus,
+    order: getOrderDetail(order.id)
+  });
+});
+
+router.post("/packing/orders/:id/confirm-scan", (req, res) => {
+  const order = getOrderDetail(req.params.id);
+  const packerId = req.body.packer_id || null;
+
+  if (!order) {
+    res.status(404).json({ code: "ORDER_NOT_FOUND", message: "Order not found." });
+    return;
+  }
+
+  const incomplete = order.items.some((item) => item.quantity_scanned < item.quantity_required);
+  if (incomplete) {
+    res.status(400).json({ code: "ORDER_SCAN_INCOMPLETE", message: "Order scan is not complete." });
+    return;
+  }
+
+  const now = nowIso();
+  db.prepare(`
+    update orders
+    set status = 'Packed',
+        packed_by = coalesce(packed_by, @packerId),
+        packed_at = coalesce(packed_at, @now),
+        updated_at = @now
+    where id = @orderId
+  `).run({ orderId: order.id, packerId, now });
+
+  createScanEvent({
+    orderId: order.id,
+    packerId,
+    scanType: "packing_confirm",
+    scannedValue: order.tracking_id,
+    result: "success",
+    message: "Packing scan confirmed"
+  });
+
+  res.json({
+    result: "success",
+    order_status: "Packed",
     order: getOrderDetail(order.id)
   });
 });

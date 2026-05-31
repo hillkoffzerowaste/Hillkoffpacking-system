@@ -232,7 +232,7 @@ export async function listFirebaseOrders({ status, channel, q } = {}) {
 
 export async function listFirebaseReadyOrders() {
   const orders = await listFirebaseOrders();
-  return orders.filter((order) => ["Ready to Pack", "Packing In Progress", "Verified", "Packed"].includes(order.status));
+  return orders.filter((order) => ["Ready to Pack", "Packing In Progress", "Scan Completed", "Verified", "Packed"].includes(order.status));
 }
 
 export async function getFirebaseOrder(id) {
@@ -361,9 +361,8 @@ export async function scanFirebaseSku(orderId, scannedSku, packerId, quantity = 
   const packed = items.every((candidate) => candidate.status === "verified");
   await updateFirebaseOrder(order.id, {
     items,
-    status: packed ? "Packed" : "Packing In Progress",
-    packed_by: order.packed_by || packerId || null,
-    packed_at: packed ? nowIso() : order.packed_at || null
+    status: packed ? "Scan Completed" : "Packing In Progress",
+    packed_by: order.packed_by || packerId || null
   });
   const nextItem = items.find((candidate) => candidate.id === item.id);
   await addFirebaseScanEvent({ order_id: order.id, order_item_id: item.id, packer_id: packerId || null, scan_type: "item_verify", scanned_value: scannedSku, result: "success", message: `+${scanQuantity} => ${nextItem.quantity_scanned}/${nextItem.quantity_required}` });
@@ -379,13 +378,39 @@ export async function scanFirebaseSku(orderId, scannedSku, packerId, quantity = 
     quantity_scanned: nextItem.quantity_scanned,
     quantity_required: nextItem.quantity_required,
     item_status: nextItem.status,
-    order_status: packed ? "Packed" : "Packing In Progress",
+    order_status: packed ? "Scan Completed" : "Packing In Progress",
     order: {
       ...order,
       items,
-      status: packed ? "Packed" : "Packing In Progress",
+      status: packed ? "Scan Completed" : "Packing In Progress",
+      packed_by: order.packed_by || packerId || null
+    }
+  };
+}
+
+export async function confirmFirebasePackingScan(orderId, packerId) {
+  const order = await getFirebaseOrder(orderId);
+  if (!order) throw new Error("Order not found.");
+  if ((order.items || []).some((item) => item.quantity_scanned < item.quantity_required)) {
+    throw new Error("Order scan is not complete.");
+  }
+
+  const packedAt = order.packed_at || nowIso();
+  await updateFirebaseOrder(order.id, {
+    status: "Packed",
+    packed_by: order.packed_by || packerId || null,
+    packed_at: packedAt
+  });
+  await addFirebaseScanEvent({ order_id: order.id, packer_id: packerId || null, scan_type: "packing_confirm", scanned_value: order.tracking_id, result: "success", message: "Packing scan confirmed" });
+
+  return {
+    result: "success",
+    order_status: "Packed",
+    order: {
+      ...order,
+      status: "Packed",
       packed_by: order.packed_by || packerId || null,
-      packed_at: packed ? nowIso() : order.packed_at || null
+      packed_at: packedAt
     }
   };
 }
@@ -583,7 +608,7 @@ export async function importFirebaseFile({ file, channel, deduplicationAction })
 export async function firebaseSummary() {
   const [orders, events] = await Promise.all([listFirebaseOrders(), listFirebaseScanEvents()]);
   const today = nowIso().slice(0, 10);
-  const active = orders.filter((order) => ["Ready to Pack", "Packing In Progress", "Verified", "Packed"].includes(order.status));
+  const active = orders.filter((order) => ["Ready to Pack", "Packing In Progress", "Scan Completed", "Verified", "Packed"].includes(order.status));
   return {
     totals: {
       ready: orders.filter((order) => order.status === "Ready to Pack").length,

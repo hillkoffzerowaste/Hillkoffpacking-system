@@ -28,6 +28,7 @@ import {
   createFirebaseOrder,
   createFirebasePacker,
   createFirebaseProvider,
+  confirmFirebasePackingScan,
   dispatchFirebaseOrder,
   firebaseSummary,
   identifyFirebasePacker,
@@ -50,6 +51,15 @@ import "./styles.css";
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:4000/api";
 const LOCAL_STORE_KEY = "hillkoff-packing-local-db-v1";
 const DATA_MODE = import.meta.env.VITE_DATA_MODE || "api";
+
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator) || import.meta.env.DEV) return;
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch((error) => {
+      console.warn("Service worker registration failed.", error);
+    });
+  });
+}
 
 const NAV_ITEMS = [
   { id: "dashboard", label: "ภาพรวมงาน", icon: LayoutDashboard },
@@ -90,6 +100,7 @@ const SUBTITLE_LABELS = {
 const STATUS_LABELS = {
   "Ready to Pack": "รอแพ็ค",
   "Packing In Progress": "กำลังแพ็ค",
+  "Scan Completed": "สแกนเสร็จ รอยืนยัน",
   Packed: "แพ็คเสร็จ",
   Verified: "ตรวจครบแล้ว",
   "Shipped / Handed Over": "ส่งมอบขนส่งแล้ว",
@@ -141,6 +152,7 @@ function translateMessage(message) {
     "SKU does not match this order.": "SKU ไม่ตรงกับออเดอร์นี้",
     "Quantity already completed.": "จำนวนสินค้ารายการนี้สแกนครบแล้ว",
     "Order must be packed before dispatch.": "ต้องแพ็คสินค้าให้ครบก่อนส่งมอบขนส่ง",
+    "Order scan is not complete.": "ยังสแกนสินค้าไม่ครบ",
     "Scan quantity must be at least 1.": "จำนวนที่สแกนต้องอย่างน้อย 1",
     "Scan quantity exceeds remaining quantity.": "จำนวนที่ใส่มากกว่าจำนวนสินค้าที่ยังเหลือในออเดอร์",
     "Barcode is not linked to a SKU yet.": "บาร์โค้ดนี้ยังไม่ได้ผูกกับ SKU และออเดอร์นี้มีสินค้าหลายรายการ",
@@ -224,6 +236,7 @@ async function firebaseApi(path, options = {}) {
   if (path === "/packing/session" && method === "POST") return identifyFirebasePacker(body.packer_barcode);
   if (path === "/packing/orders/lookup" && method === "POST") return lookupFirebaseOrder(body.lookup_value, body.packer_id);
   if (path.includes("/scan-item") && method === "POST") return scanFirebaseSku(path.split("/")[3], body.scanned_sku, body.packer_id, body.quantity);
+  if (path.includes("/confirm-scan") && method === "POST") return confirmFirebasePackingScan(path.split("/")[3], body.packer_id);
   if (path === "/dispatch/final-scan" && method === "POST") return dispatchFirebaseOrder(body.tracking_or_order_id);
   if (path === "/packers" && method === "POST") return { packers: await createFirebasePacker(body) };
   if (path === "/shipping-providers" && method === "POST") return { shipping_providers: await createFirebaseProvider(body) };
@@ -463,7 +476,7 @@ async function localApi(path, options = {}) {
 
   if (path === "/dashboard/summary") {
     const today = nowIso().slice(0, 10);
-    const active = db.orders.filter((order) => ["Ready to Pack", "Packing In Progress", "Verified", "Packed"].includes(order.status));
+    const active = db.orders.filter((order) => ["Ready to Pack", "Packing In Progress", "Scan Completed", "Verified", "Packed"].includes(order.status));
     const byProvider = Object.values(active.reduce((acc, order) => {
       const provider = decorateOrder(db, order).shipping_provider;
       acc[provider] = acc[provider] || { shipping_provider: provider, count: 0 };
@@ -490,7 +503,7 @@ async function localApi(path, options = {}) {
   if (path === "/orders/ready") {
     return {
       orders: db.orders
-        .filter((order) => ["Ready to Pack", "Packing In Progress", "Verified", "Packed"].includes(order.status))
+        .filter((order) => ["Ready to Pack", "Packing In Progress", "Scan Completed", "Verified", "Packed"].includes(order.status))
         .map((order) => decorateOrder(db, order))
     };
   }
@@ -631,9 +644,8 @@ async function localApi(path, options = {}) {
     item.quantity_scanned += scanQuantity;
     item.status = item.quantity_scanned >= item.quantity_required ? "verified" : "partial";
     item.updated_at = nowIso();
-    order.status = order.items.every((candidate) => candidate.status === "verified") ? "Packed" : "Packing In Progress";
+    order.status = order.items.every((candidate) => candidate.status === "verified") ? "Scan Completed" : "Packing In Progress";
     order.packed_by = order.packed_by || body.packer_id || null;
-    order.packed_at = order.status === "Packed" ? nowIso() : order.packed_at;
     order.updated_at = nowIso();
     addLocalEvent(db, { order_id: order.id, order_item_id: item.id, packer_id: body.packer_id, scan_type: "item_verify", scanned_value: scannedSku, result: "success", message: `+${scanQuantity} => ${item.quantity_scanned}/${item.quantity_required}` });
     writeLocalDb(db);
@@ -651,6 +663,22 @@ async function localApi(path, options = {}) {
       order_status: order.status,
       order: orderDetail(db, order.id)
     };
+  }
+
+  if (path.includes("/confirm-scan") && method === "POST") {
+    const orderId = path.split("/")[3];
+    const order = db.orders.find((item) => item.id === orderId);
+    if (!order) throw new Error("Order not found.");
+    if (order.items.some((item) => item.quantity_scanned < item.quantity_required)) {
+      throw new Error("Order scan is not complete.");
+    }
+    order.status = "Packed";
+    order.packed_by = order.packed_by || body.packer_id || null;
+    order.packed_at = order.packed_at || nowIso();
+    order.updated_at = nowIso();
+    addLocalEvent(db, { order_id: order.id, packer_id: body.packer_id, scan_type: "packing_confirm", scanned_value: order.tracking_id, result: "success", message: "Packing scan confirmed" });
+    writeLocalDb(db);
+    return { result: "success", order_status: order.status, order: orderDetail(db, order.id) };
   }
 
   if (path === "/dispatch/final-scan" && method === "POST") {
@@ -1308,12 +1336,33 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
     }
   }
 
+  async function confirmScanComplete() {
+    if (!order) return;
+    setError("");
+    setMessage("");
+    try {
+      const data = await api(`/packing/orders/${order.id}/confirm-scan`, {
+        method: "POST",
+        body: JSON.stringify({ packer_id: null })
+      });
+      setOrder(data.order);
+      setMessage(`ยืนยันสแกนเสร็จแล้ว: ${data.order.order_key}`);
+      await onRefresh();
+    } catch (err) {
+      setError(err.message);
+      playErrorSound();
+    }
+  }
+
   const progress = useMemo(() => {
     if (!order?.items?.length) return 0;
     const required = order.items.reduce((sum, item) => sum + item.quantity_required, 0);
     const scanned = order.items.reduce((sum, item) => sum + item.quantity_scanned, 0);
     return Math.round((scanned / required) * 100);
   }, [order]);
+
+  const scanComplete = order?.items?.length && order.items.every((item) => item.quantity_scanned >= item.quantity_required);
+  const waitingConfirm = order?.status === "Scan Completed";
 
   return (
     <div className="pageStack">
@@ -1342,6 +1391,7 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
                 <div><span>ออเดอร์</span><strong>{order.order_key}</strong></div>
                 <div><span>เลขพัสดุ</span><strong>{order.tracking_id}</strong></div>
                 <div><span>ความคืบหน้า</span><strong>{progress}%</strong></div>
+                <div><span>สถานะ</span><StatusBadge status={order.status} /></div>
               </div>
               <form className="scanForm" onSubmit={scanSku}>
                 <label>สแกน SKU สินค้า
@@ -1365,6 +1415,17 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
                   </div>
                 ))}
               </div>
+              {scanComplete && (
+                <div className="confirmScanBar">
+                  <div>
+                    <strong>{waitingConfirm ? "สแกนเสร็จแล้ว" : "สแกนครบแล้ว"}</strong>
+                    <span>{waitingConfirm ? "รอกดยืนยันเพื่อเปลี่ยนเป็นแพ็คเสร็จ" : statusLabel(order.status)}</span>
+                  </div>
+                  <button type="button" className="primary" disabled={!waitingConfirm} onClick={confirmScanComplete}>
+                    <CheckCircle2 size={18} />ยืนยันสแกนเสร็จ
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -1386,6 +1447,7 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
               <button className="queueItem" key={item.id} onClick={() => setLookup(item.tracking_id)}>
                 <strong>{item.tracking_id}</strong>
                 <span>{item.shipping_provider || "ไม่ระบุขนส่ง"}</span>
+                <StatusBadge status={item.status} />
               </button>
             ))}
             {readyOrders.length === 0 && <EmptyState label="ไม่มีคิวรอแพ็ค" />}
@@ -1650,6 +1712,7 @@ function OrdersPage({ onRefresh }) {
               <option value="">ทั้งหมด</option>
               <option value="Ready to Pack">รอแพ็ค</option>
               <option value="Packing In Progress">กำลังแพ็ค</option>
+              <option value="Scan Completed">สแกนเสร็จ รอยืนยัน</option>
               <option value="Packed">แพ็คเสร็จ</option>
               <option value="Shipped / Handed Over">ส่งมอบขนส่งแล้ว</option>
             </select>
@@ -1942,4 +2005,5 @@ function App() {
   );
 }
 
+registerServiceWorker();
 createRoot(document.getElementById("root")).render(<App />);

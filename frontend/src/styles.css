@@ -666,7 +666,7 @@ input:disabled {
   border-radius: 8px;
   display: grid;
   gap: 10px;
-  grid-template-columns: 1fr 1fr 110px;
+  grid-template-columns: 1fr 1fr 110px 150px;
   padding: 12px;
 }
 
@@ -722,11 +722,35 @@ input:disabled {
   border-color: #e7c766;
 }
 
+.confirmScanBar {
+  align-items: center;
+  background: #e5f6ed;
+  border: 1px solid #66b88e;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr auto;
+  padding: 12px;
+}
+
+.confirmScanBar strong,
+.confirmScanBar span {
+  display: block;
+}
+
+.confirmScanBar span {
+  color: #2d6d4c;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .queueItem {
   background: #f8faf6;
   border: 1px solid #dce4d8;
   border-radius: 7px;
   color: #18221a;
+  display: grid;
+  gap: 6px;
   min-height: 58px;
   padding: 10px;
   text-align: left;
@@ -837,6 +861,11 @@ td {
 .badge.packing-in-progress {
   background: #fff1d3;
   color: #8b5a00;
+}
+
+.badge.scan-completed {
+  background: #e3f1ff;
+  color: #145a9f;
 }
 
 .resultPill.error {
