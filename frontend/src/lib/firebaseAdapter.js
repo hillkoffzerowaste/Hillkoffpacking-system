@@ -28,6 +28,7 @@ const DEFAULT_PACKERS = [
 
 let readyPromise;
 let productBarcodeCache;
+let productBarcodeCacheUnavailable = false;
 
 function nowIso() {
   return new Date().toISOString();
@@ -71,7 +72,14 @@ async function getProductBarcodeCache() {
   await ensureFirebaseReady();
   if (productBarcodeCache) return productBarcodeCache;
   productBarcodeCache = new Map();
-  const mappings = await all("product_barcodes");
+  let mappings = [];
+  try {
+    mappings = await all("product_barcodes");
+  } catch (error) {
+    productBarcodeCacheUnavailable = true;
+    console.warn("Product barcode mapping is unavailable.", error);
+    return productBarcodeCache;
+  }
   for (const mapping of mappings) {
     if (mapping.barcode && mapping.sku) productBarcodeCache.set(mapping.barcode, mapping);
   }
@@ -95,7 +103,14 @@ async function rememberFirebaseProductBarcode(barcode, item) {
     scan_count: Number(existing?.scan_count || 0) + 1
   };
   const db = requireFirestore();
-  await setDoc(doc(db, "product_barcodes", productBarcodeDocId(normalizedBarcode)), record, { merge: true });
+  if (!productBarcodeCacheUnavailable) {
+    try {
+      await setDoc(doc(db, "product_barcodes", productBarcodeDocId(normalizedBarcode)), record, { merge: true });
+    } catch (error) {
+      productBarcodeCacheUnavailable = true;
+      console.warn("Product barcode mapping could not be saved.", error);
+    }
+  }
   cache.set(normalizedBarcode, record);
   return true;
 }
