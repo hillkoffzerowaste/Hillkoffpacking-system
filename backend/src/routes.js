@@ -358,10 +358,16 @@ router.post("/packing/orders/lookup", (req, res) => {
 router.post("/packing/orders/:id/scan-item", (req, res) => {
   const order = getOrderDetail(req.params.id);
   const scannedSku = String(req.body.scanned_sku || "").trim();
+  const scanQuantity = Number(req.body.quantity || 1);
   const packerId = req.body.packer_id || null;
 
   if (!order) {
     res.status(404).json({ code: "ORDER_NOT_FOUND", message: "Order not found." });
+    return;
+  }
+
+  if (!Number.isInteger(scanQuantity) || scanQuantity < 1) {
+    res.status(400).json({ result: "error", code: "INVALID_QUANTITY", message: "Scan quantity must be at least 1." });
     return;
   }
 
@@ -393,7 +399,21 @@ router.post("/packing/orders/:id/scan-item", (req, res) => {
     return;
   }
 
-  const nextQty = item.quantity_scanned + 1;
+  if (scanQuantity > item.quantity_required - item.quantity_scanned) {
+    createScanEvent({
+      orderId: order.id,
+      orderItemId: item.id,
+      packerId,
+      scanType: "item_verify",
+      scannedValue: scannedSku,
+      result: "error",
+      message: "Scan quantity exceeds remaining quantity"
+    });
+    res.status(400).json({ result: "error", code: "QUANTITY_EXCEEDS_REMAINING", message: "Scan quantity exceeds remaining quantity." });
+    return;
+  }
+
+  const nextQty = item.quantity_scanned + scanQuantity;
   const itemStatus = nextQty >= item.quantity_required ? "verified" : "partial";
   const now = nowIso();
 
@@ -428,12 +448,15 @@ router.post("/packing/orders/:id/scan-item", (req, res) => {
     scanType: "item_verify",
     scannedValue: scannedSku,
     result: "success",
-    message: `${nextQty}/${item.quantity_required}`
+    message: `+${scanQuantity} => ${nextQty}/${item.quantity_required}`
   });
 
   res.json({
     result: "success",
-    sku: scannedSku,
+    sku: item.sku,
+    scanned_sku: scannedSku,
+    product_name: item.product_name,
+    quantity_added: scanQuantity,
     quantity_scanned: nextQty,
     quantity_required: item.quantity_required,
     item_status: itemStatus,

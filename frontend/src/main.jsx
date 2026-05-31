@@ -141,6 +141,8 @@ function translateMessage(message) {
     "SKU does not match this order.": "SKU ไม่ตรงกับออเดอร์นี้",
     "Quantity already completed.": "จำนวนสินค้ารายการนี้สแกนครบแล้ว",
     "Order must be packed before dispatch.": "ต้องแพ็คสินค้าให้ครบก่อนส่งมอบขนส่ง",
+    "Scan quantity must be at least 1.": "จำนวนที่สแกนต้องอย่างน้อย 1",
+    "Scan quantity exceeds remaining quantity.": "จำนวนที่ใส่มากกว่าจำนวนสินค้าที่ยังเหลือในออเดอร์",
     "At least one valid SKU item is required.": "ต้องมีสินค้าอย่างน้อย 1 รายการ",
     "Order key and tracking id are required.": "กรุณากรอกเลขออเดอร์และเลขพัสดุ",
     "Order or tracking already exists.": "ออเดอร์หรือเลขพัสดุนี้มีอยู่แล้ว"
@@ -219,7 +221,7 @@ async function firebaseApi(path, options = {}) {
   }
   if (path === "/packing/session" && method === "POST") return identifyFirebasePacker(body.packer_barcode);
   if (path === "/packing/orders/lookup" && method === "POST") return lookupFirebaseOrder(body.lookup_value, body.packer_id);
-  if (path.includes("/scan-item") && method === "POST") return scanFirebaseSku(path.split("/")[3], body.scanned_sku, body.packer_id);
+  if (path.includes("/scan-item") && method === "POST") return scanFirebaseSku(path.split("/")[3], body.scanned_sku, body.packer_id, body.quantity);
   if (path === "/dispatch/final-scan" && method === "POST") return dispatchFirebaseOrder(body.tracking_or_order_id);
   if (path === "/packers" && method === "POST") return { packers: await createFirebasePacker(body) };
   if (path === "/shipping-providers" && method === "POST") return { shipping_providers: await createFirebaseProvider(body) };
@@ -546,6 +548,10 @@ async function localApi(path, options = {}) {
     const order = db.orders.find((item) => item.id === orderId);
     if (!order) throw new Error("Order not found.");
     const scannedSku = String(body.scanned_sku || "").trim();
+    const scanQuantity = Number(body.quantity || 1);
+    if (!Number.isInteger(scanQuantity) || scanQuantity < 1) {
+      throw new Error("Scan quantity must be at least 1.");
+    }
     const item = order.items.find((candidate) => candidate.sku.toUpperCase() === scannedSku.toUpperCase());
     if (!item) {
       addLocalEvent(db, { order_id: order.id, packer_id: body.packer_id, scan_type: "item_verify", scanned_value: scannedSku, result: "error", message: "SKU does not match this order" });
@@ -557,18 +563,26 @@ async function localApi(path, options = {}) {
       writeLocalDb(db);
       throw new Error("Quantity already completed.");
     }
-    item.quantity_scanned += 1;
+    if (scanQuantity > item.quantity_required - item.quantity_scanned) {
+      addLocalEvent(db, { order_id: order.id, order_item_id: item.id, packer_id: body.packer_id, scan_type: "item_verify", scanned_value: scannedSku, result: "error", message: "Scan quantity exceeds remaining quantity" });
+      writeLocalDb(db);
+      throw new Error("Scan quantity exceeds remaining quantity.");
+    }
+    item.quantity_scanned += scanQuantity;
     item.status = item.quantity_scanned >= item.quantity_required ? "verified" : "partial";
     item.updated_at = nowIso();
     order.status = order.items.every((candidate) => candidate.status === "verified") ? "Packed" : "Packing In Progress";
     order.packed_by = order.packed_by || body.packer_id || null;
     order.packed_at = order.status === "Packed" ? nowIso() : order.packed_at;
     order.updated_at = nowIso();
-    addLocalEvent(db, { order_id: order.id, order_item_id: item.id, packer_id: body.packer_id, scan_type: "item_verify", scanned_value: scannedSku, result: "success", message: `${item.quantity_scanned}/${item.quantity_required}` });
+    addLocalEvent(db, { order_id: order.id, order_item_id: item.id, packer_id: body.packer_id, scan_type: "item_verify", scanned_value: scannedSku, result: "success", message: `+${scanQuantity} => ${item.quantity_scanned}/${item.quantity_required}` });
     writeLocalDb(db);
     return {
       result: "success",
       sku: item.sku,
+      scanned_sku: scannedSku,
+      product_name: item.product_name,
+      quantity_added: scanQuantity,
       quantity_scanned: item.quantity_scanned,
       quantity_required: item.quantity_required,
       item_status: item.status,
@@ -1174,6 +1188,7 @@ function NewOrderPage({ onRefresh, onGoPacking }) {
 function PackingPage({ onRefresh, readyOrders, initialLookup }) {
   const [lookup, setLookup] = useState("");
   const [sku, setSku] = useState("");
+  const [scanQuantity, setScanQuantity] = useState(1);
   const [order, setOrder] = useState(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -1217,11 +1232,12 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
     try {
       const data = await api(`/packing/orders/${order.id}/scan-item`, {
         method: "POST",
-        body: JSON.stringify({ scanned_sku: sku, packer_id: null })
+        body: JSON.stringify({ scanned_sku: sku, quantity: scanQuantity, packer_id: null })
       });
       setOrder(data.order);
-      setMessage(`${data.sku}: ${data.quantity_scanned}/${data.quantity_required}`);
+      setMessage(`รหัสสินค้า ${data.sku} เพิ่ม ${data.quantity_added || scanQuantity}: ${data.quantity_scanned}/${data.quantity_required}`);
       setSku("");
+      setScanQuantity(1);
       await onRefresh();
     } catch (err) {
       setError(err.message);
@@ -1268,6 +1284,9 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
               <form className="scanForm" onSubmit={scanSku}>
                 <label>สแกน SKU สินค้า
                   <input ref={skuRef} value={sku} onChange={(event) => setSku(event.target.value)} placeholder="ยิง barcode สินค้า" />
+                </label>
+                <label className="quantityField">จำนวน
+                  <input type="number" min="1" step="1" value={scanQuantity} onChange={(event) => setScanQuantity(event.target.value)} />
                 </label>
                 <button className="primary"><Barcode size={18} />สแกน</button>
               </form>

@@ -240,9 +240,13 @@ export async function lookupFirebaseOrder(value, packerId) {
   return getFirebaseOrder(order.id);
 }
 
-export async function scanFirebaseSku(orderId, scannedSku, packerId) {
+export async function scanFirebaseSku(orderId, scannedSku, packerId, quantity = 1) {
   const order = await getFirebaseOrder(orderId);
   if (!order) throw new Error("Order not found.");
+  const scanQuantity = Number(quantity || 1);
+  if (!Number.isInteger(scanQuantity) || scanQuantity < 1) {
+    throw new Error("Scan quantity must be at least 1.");
+  }
 
   const item = order.items.find((candidate) => candidate.sku.toUpperCase() === String(scannedSku || "").trim().toUpperCase());
   if (!item) {
@@ -255,9 +259,14 @@ export async function scanFirebaseSku(orderId, scannedSku, packerId) {
     throw new Error("Quantity already completed.");
   }
 
+  if (scanQuantity > item.quantity_required - item.quantity_scanned) {
+    await addFirebaseScanEvent({ order_id: order.id, order_item_id: item.id, packer_id: packerId || null, scan_type: "item_verify", scanned_value: scannedSku, result: "error", message: "Scan quantity exceeds remaining quantity" });
+    throw new Error("Scan quantity exceeds remaining quantity.");
+  }
+
   const items = order.items.map((candidate) => {
     if (candidate.id !== item.id) return candidate;
-    const nextQty = candidate.quantity_scanned + 1;
+    const nextQty = candidate.quantity_scanned + scanQuantity;
     return {
       ...candidate,
       quantity_scanned: nextQty,
@@ -273,11 +282,14 @@ export async function scanFirebaseSku(orderId, scannedSku, packerId) {
     packed_at: packed ? nowIso() : order.packed_at || null
   });
   const nextItem = items.find((candidate) => candidate.id === item.id);
-  await addFirebaseScanEvent({ order_id: order.id, order_item_id: item.id, packer_id: packerId || null, scan_type: "item_verify", scanned_value: scannedSku, result: "success", message: `${nextItem.quantity_scanned}/${nextItem.quantity_required}` });
+  await addFirebaseScanEvent({ order_id: order.id, order_item_id: item.id, packer_id: packerId || null, scan_type: "item_verify", scanned_value: scannedSku, result: "success", message: `+${scanQuantity} => ${nextItem.quantity_scanned}/${nextItem.quantity_required}` });
 
   return {
     result: "success",
     sku: nextItem.sku,
+    scanned_sku: scannedSku,
+    product_name: nextItem.product_name,
+    quantity_added: scanQuantity,
     quantity_scanned: nextItem.quantity_scanned,
     quantity_required: nextItem.quantity_required,
     item_status: nextItem.status,
