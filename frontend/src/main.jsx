@@ -204,7 +204,12 @@ async function firebaseApi(path, options = {}) {
   if (path === "/scan-events") return { events: await listFirebaseScanEvents() };
   if (path.startsWith("/sales/dispatch-scans") && method === "GET") {
     const params = new URLSearchParams(path.split("?")[1] || "");
-    return { scans: await listFirebaseSalesDispatchScans({ date: params.get("date") || "" }) };
+    return {
+      scans: await listFirebaseSalesDispatchScans({
+        date: params.get("date") || "",
+        month: params.get("month") || ""
+      })
+    };
   }
   if (path === "/sales/dispatch-scans" && method === "POST") {
     return { scan: await recordFirebaseSalesDispatchScan(body.tracking_or_order_id) };
@@ -548,10 +553,11 @@ async function localApi(path, options = {}) {
 
   if (path.startsWith("/sales/dispatch-scans") && method === "GET") {
     const params = new URLSearchParams(path.split("?")[1] || "");
-    const dateKey = params.get("date") || todayKey();
+    const dateKey = params.get("date") || "";
+    const monthKey = params.get("month") || "";
     return {
       scans: db.salesScans
-        .filter((scan) => scan.date_key === dateKey)
+        .filter((scan) => (monthKey ? String(scan.date_key || "").startsWith(monthKey) : scan.date_key === (dateKey || todayKey())))
         .sort((left, right) => String(right.scanned_at || "").localeCompare(String(left.scanned_at || "")))
     };
   }
@@ -737,6 +743,26 @@ function todayKey() {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function monthKey(value = todayKey()) {
+  return String(value || todayKey()).slice(0, 7);
+}
+
+function shiftDateKey(value, days) {
+  const [year, month, day] = String(value || todayKey()).split("-").map(Number);
+  const date = new Date(year, (month || 1) - 1, day || 1);
+  date.setDate(date.getDate() + days);
+  const nextYear = date.getFullYear();
+  const nextMonth = String(date.getMonth() + 1).padStart(2, "0");
+  const nextDay = String(date.getDate()).padStart(2, "0");
+  return `${nextYear}-${nextMonth}-${nextDay}`;
+}
+
+function daysInMonth(monthValue) {
+  const safeMonth = /^\d{4}-\d{2}$/.test(String(monthValue || "")) ? monthValue : monthKey();
+  const [year, month] = String(safeMonth).split("-").map(Number);
+  return new Date(year, month, 0).getDate();
 }
 
 function downloadBlob(blob, fileName) {
@@ -1522,10 +1548,47 @@ function DispatchPage({ onRefresh }) {
   );
 }
 
+function DailyDispatchChart({ days, max }) {
+  return (
+    <div className="dailyDispatchChart" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(20px, 1fr))` }}>
+      {days.map((day) => (
+        <div className="dayBar" key={day.date}>
+          <span>{day.label}</span>
+          <div className="dayBarTrack" title={`${day.date}: ${day.count}`}>
+            <div className="dayBarFill" style={{ height: day.count ? `${Math.max(4, (day.count / max) * 100)}%` : 0 }} />
+          </div>
+          <strong>{day.count}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DispatchChannelChart({ items, total }) {
+  return (
+    <div className="channelChart">
+      {items.map((item) => (
+        <div className="channelBarRow" key={item.channel}>
+          <div className="channelBarMeta">
+            <span>{channelLabel(item.channel)}</span>
+            <strong>{item.count}</strong>
+          </div>
+          <div className="channelBarTrack">
+            <div className="channelBarFill" style={{ width: `${Math.max(4, (item.count / Math.max(total, 1)) * 100)}%` }} />
+          </div>
+        </div>
+      ))}
+      {!items.length && <p className="emptyHint">ยังไม่มีข้อมูลในเดือนนี้</p>}
+    </div>
+  );
+}
+
 function SalesDispatchPage() {
   const [lookup, setLookup] = useState("");
   const [date, setDate] = useState(todayKey());
+  const [month, setMonth] = useState(monthKey());
   const [scans, setScans] = useState([]);
+  const [monthScans, setMonthScans] = useState([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -1536,8 +1599,13 @@ function SalesDispatchPage() {
     setScans(data.scans || []);
   }
 
+  async function loadMonthScans(nextMonth = month) {
+    const data = await api(`/sales/dispatch-scans?month=${encodeURIComponent(nextMonth)}`);
+    setMonthScans(data.scans || []);
+  }
+
   useEffect(() => {
-    loadScans().catch((err) => setError(err.message));
+    Promise.all([loadScans(), loadMonthScans()]).catch((err) => setError(err.message));
   }, []);
 
   const channelSummary = useMemo(() => {
@@ -1548,6 +1616,35 @@ function SalesDispatchPage() {
       return acc;
     }, {})).sort((left, right) => channelLabel(left.channel).localeCompare(channelLabel(right.channel)));
   }, [scans]);
+
+  const monthChannelSummary = useMemo(() => {
+    return Object.values(monthScans.reduce((acc, scan) => {
+      const channel = scan.channel || "reservation";
+      acc[channel] ||= { channel, count: 0 };
+      acc[channel].count += 1;
+      return acc;
+    }, {})).sort((left, right) => right.count - left.count);
+  }, [monthScans]);
+
+  const monthDailySummary = useMemo(() => {
+    const counts = monthScans.reduce((acc, scan) => {
+      const key = scan.date_key || "";
+      if (!key.startsWith(month)) return acc;
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    return Array.from({ length: daysInMonth(month) }, (_, index) => {
+      const day = String(index + 1).padStart(2, "0");
+      const key = `${month}-${day}`;
+      return { date: key, label: String(index + 1), count: counts[key] || 0 };
+    });
+  }, [month, monthScans]);
+
+  const todayScanCount = useMemo(() => monthScans.filter((scan) => scan.date_key === todayKey()).length, [monthScans]);
+  const activeMonthDays = useMemo(() => new Set(monthScans.map((scan) => scan.date_key).filter(Boolean)).size, [monthScans]);
+  const monthAverage = activeMonthDays ? Math.round(monthScans.length / activeMonthDays) : 0;
+  const selectedDuplicateCount = useMemo(() => scans.filter((scan) => Number(scan.scan_count || 1) > 1).length, [scans]);
+  const maxDailyScans = Math.max(1, ...monthDailySummary.map((item) => item.count));
 
   const exportRows = useMemo(() => scans.map((scan) => ({
     "วันที่": scan.date_key,
@@ -1560,6 +1657,18 @@ function SalesDispatchPage() {
     "สถานะ": statusLabel(scan.status),
     "จำนวนครั้งที่สแกน": scan.scan_count || 1
   })), [scans]);
+
+  const monthExportRows = useMemo(() => monthScans.map((scan) => ({
+    "วันที่": scan.date_key,
+    "เวลาสแกน": formatDate(scan.scanned_at),
+    "แพลตฟอร์ม": channelLabel(scan.channel),
+    "เลขพัสดุ": scan.tracking_id,
+    "เลขออเดอร์": scan.order_key,
+    "ลูกค้า": scan.customer_name || "",
+    "ขนส่ง": scan.shipping_provider || "",
+    "สถานะ": statusLabel(scan.status),
+    "จำนวนครั้งที่สแกน": scan.scan_count || 1
+  })), [monthScans]);
 
   async function scanSalesDispatch(event) {
     event.preventDefault();
@@ -1574,8 +1683,11 @@ function SalesDispatchPage() {
       });
       setMessage(`บันทึกแล้ว: ${channelLabel(data.scan.channel)} / ${data.scan.tracking_id}`);
       setLookup("");
-      await loadScans(todayKey());
-      setDate(todayKey());
+      const currentDate = todayKey();
+      const currentMonth = monthKey(currentDate);
+      await Promise.all([loadScans(currentDate), loadMonthScans(currentMonth)]);
+      setDate(currentDate);
+      setMonth(currentMonth);
       inputRef.current?.focus();
     } catch (err) {
       setError(err.message);
@@ -1585,8 +1697,20 @@ function SalesDispatchPage() {
 
   async function changeDate(nextDate) {
     setDate(nextDate);
+    const nextMonth = monthKey(nextDate);
+    if (nextMonth !== month) setMonth(nextMonth);
     setError("");
-    await loadScans(nextDate);
+    await Promise.all([
+      loadScans(nextDate),
+      nextMonth !== month ? loadMonthScans(nextMonth) : Promise.resolve()
+    ]);
+  }
+
+  async function changeMonth(nextMonth) {
+    if (!nextMonth) return;
+    setMonth(nextMonth);
+    setError("");
+    await loadMonthScans(nextMonth);
   }
 
   function exportCsv() {
@@ -1599,13 +1723,23 @@ function SalesDispatchPage() {
     exportRecordsAsExcel(exportRows, `sales-dispatch-${date}.xls`);
   }
 
+  function exportMonthCsv() {
+    if (!monthExportRows.length) return;
+    const csv = recordsToCsv(monthExportRows);
+    downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), `sales-dispatch-${month}.csv`);
+  }
+
+  function exportMonthExcel() {
+    exportRecordsAsExcel(monthExportRows, `sales-dispatch-${month}.xls`);
+  }
+
   return (
     <div className="pageStack">
       <PageTitle
         icon={Archive}
         title="Sales Dispatch Sheet"
         subtitle="สแกนใบปะหน้าสำหรับฝ่ายขาย แล้วส่งออกเป็นรายงานประจำวัน"
-        action={<button className="secondary" onClick={() => loadScans()}><RefreshCw size={18} />รีเฟรช</button>}
+        action={<button className="secondary" onClick={() => Promise.all([loadScans(), loadMonthScans()])}><RefreshCw size={18} />รีเฟรช</button>}
       />
 
       <section className="salesScannerPanel">
@@ -1632,11 +1766,47 @@ function SalesDispatchPage() {
       </section>
 
       <div className="salesSummaryGrid">
-        <Metric label="รวมวันนี้/วันที่เลือก" value={scans.length} />
+        <Metric label="วันที่เลือก" value={scans.length} />
+        <Metric label="วันนี้" value={todayScanCount} tone="ok" />
+        <Metric label="รวมเดือนที่เลือก" value={monthScans.length} />
+        <Metric label="เฉลี่ยต่อวันที่มีสแกน" value={monthAverage} />
+        <Metric label="สแกนซ้ำวันที่เลือก" value={selectedDuplicateCount} tone={selectedDuplicateCount ? "warn" : "ok"} />
         {channelSummary.map((item) => (
           <Metric key={item.channel} label={channelLabel(item.channel)} value={item.count} tone="ok" />
         ))}
       </div>
+
+      <section className="panel">
+        <div className="panelHeader">
+          <LayoutDashboard size={20} />
+          <h3>วิเคราะห์รายวันและรายเดือน</h3>
+        </div>
+        <div className="salesToolbar">
+          <label>เดือน
+            <input type="month" value={month} onChange={(event) => changeMonth(event.target.value)} />
+          </label>
+          <div className="toolbarActions">
+            <button className="secondary" disabled={!monthExportRows.length} onClick={exportMonthCsv}><FileClock size={18} />ส่งออก CSV รายเดือน</button>
+            <button className="primary" disabled={!monthExportRows.length} onClick={exportMonthExcel}><Archive size={18} />ส่งออก Excel รายเดือน</button>
+          </div>
+        </div>
+        <div className="salesInsightsGrid">
+          <div className="chartPanel wide">
+            <div className="chartHeader">
+              <span>ยอดสแกนแต่ละวัน</span>
+              <strong>{month}</strong>
+            </div>
+            <DailyDispatchChart days={monthDailySummary} max={maxDailyScans} />
+          </div>
+          <div className="chartPanel">
+            <div className="chartHeader">
+              <span>สัดส่วนแพลตฟอร์ม</span>
+              <strong>{monthScans.length}</strong>
+            </div>
+            <DispatchChannelChart items={monthChannelSummary} total={monthScans.length} />
+          </div>
+        </div>
+      </section>
 
       <section className="panel">
         <div className="panelHeader">
@@ -1648,6 +1818,9 @@ function SalesDispatchPage() {
             <input type="date" value={date} onChange={(event) => changeDate(event.target.value)} />
           </label>
           <div className="toolbarActions">
+            <button className="secondary" onClick={() => changeDate(shiftDateKey(date, -1))}>วันก่อนหน้า</button>
+            <button className="secondary" onClick={() => changeDate(todayKey())}>วันนี้</button>
+            <button className="secondary" onClick={() => changeDate(shiftDateKey(date, 1))}>วันถัดไป</button>
             <button className="secondary" disabled={!exportRows.length} onClick={exportCsv}><FileClock size={18} />ส่งออก CSV</button>
             <button className="primary" disabled={!exportRows.length} onClick={exportExcel}><Archive size={18} />ส่งออก Excel</button>
           </div>

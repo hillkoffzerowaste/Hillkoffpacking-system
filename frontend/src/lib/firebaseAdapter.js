@@ -457,15 +457,22 @@ export async function listFirebaseScanEvents() {
   });
 }
 
-export async function listFirebaseSalesDispatchScans({ date } = {}) {
+export async function listFirebaseSalesDispatchScans({ date, month } = {}) {
   await ensureFirebaseReady();
   const db = requireFirestore();
-  const dateKey = date || localDateKey();
-  const snapshot = await getDocs(query(
-    collection(db, "sales_dispatch_scans"),
-    where("date_key", "==", dateKey),
-    limit(500)
-  ));
+  const scansCollection = collection(db, "sales_dispatch_scans");
+  const snapshot = month
+    ? await getDocs(query(
+      scansCollection,
+      where("date_key", ">=", `${month}-01`),
+      where("date_key", "<=", `${month}-31`),
+      limit(1000)
+    ))
+    : await getDocs(query(
+      scansCollection,
+      where("date_key", "==", date || localDateKey()),
+      limit(500)
+    ));
   return snapshot.docs
     .map((item) => ({ id: item.id, ...item.data() }))
     .sort((left, right) => String(right.scanned_at || "").localeCompare(String(left.scanned_at || "")));

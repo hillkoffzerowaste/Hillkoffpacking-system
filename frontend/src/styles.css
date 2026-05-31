@@ -601,7 +601,7 @@ input:disabled {
 .salesSummaryGrid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
 .salesToolbar {
@@ -622,6 +622,117 @@ input:disabled {
   flex-wrap: wrap;
   gap: 10px;
   justify-content: flex-end;
+}
+
+.salesInsightsGrid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+}
+
+.chartPanel {
+  background: #f8faf6;
+  border: 1px solid #dce4d8;
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  padding: 14px;
+}
+
+.chartHeader {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.chartHeader span {
+  color: #506052;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.chartHeader strong {
+  color: #17372f;
+  font-size: 18px;
+}
+
+.dailyDispatchChart {
+  align-items: end;
+  display: grid;
+  gap: 6px;
+  min-height: 190px;
+  overflow-x: auto;
+}
+
+.dayBar {
+  align-items: center;
+  display: grid;
+  gap: 6px;
+  grid-template-rows: 18px 140px 18px;
+  min-width: 0;
+  text-align: center;
+}
+
+.dayBar span,
+.dayBar strong {
+  color: #637163;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.dayBarTrack {
+  align-items: end;
+  background: #e5ecdf;
+  border-radius: 5px;
+  display: flex;
+  height: 140px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.dayBarFill {
+  background: linear-gradient(180deg, #43b078, #1c6f54);
+  border-radius: 5px 5px 0 0;
+  width: 100%;
+}
+
+.channelChart {
+  display: grid;
+  gap: 12px;
+}
+
+.channelBarRow {
+  display: grid;
+  gap: 7px;
+}
+
+.channelBarMeta {
+  align-items: center;
+  color: #374a3e;
+  display: flex;
+  font-size: 13px;
+  font-weight: 700;
+  justify-content: space-between;
+}
+
+.channelBarTrack {
+  background: #e5ecdf;
+  border-radius: 999px;
+  height: 12px;
+  overflow: hidden;
+}
+
+.channelBarFill {
+  background: #d99a2b;
+  border-radius: inherit;
+  height: 100%;
+}
+
+.emptyHint {
+  color: #7c887d;
+  margin: 0;
 }
 
 .routeRow,
@@ -941,6 +1052,7 @@ dd {
   .stationGrid,
   .ordersGrid,
   .metricsGrid,
+  .salesInsightsGrid,
   .salesSummaryGrid {
     grid-template-columns: 1fr;
   }
@@ -999,7 +1111,7 @@ dd {
     justify-content: stretch;
   }
 
-  .toolbarActions button {
-    flex: 1 1 150px;
-  }
+.toolbarActions button {
+  flex: 1 1 150px;
+}
 }
