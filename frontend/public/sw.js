@@ -1,4 +1,4 @@
-const CACHE_NAME = "hillkoff-packing-v1";
+const CACHE_NAME = "hillkoff-packing-v2";
 const APP_SHELL = [
   "./",
   "./manifest.webmanifest"
@@ -31,7 +31,28 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (request.mode === "navigate") {
-    event.respondWith(fetch(request).catch(() => caches.match("./")));
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const copy = response.clone();
+          if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put("./", copy));
+          return response;
+        })
+        .catch(() => caches.match("./"))
+    );
+    return;
+  }
+
+  if (["script", "style"].includes(request.destination)) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const copy = response.clone();
+          if (response.ok) caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          return response;
+        })
+        .catch(() => caches.match(request))
+    );
     return;
   }
 

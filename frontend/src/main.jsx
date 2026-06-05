@@ -44,6 +44,7 @@ import {
   listFirebaseReadyOrders,
   listFirebaseScanEvents,
   lookupFirebaseOrder,
+  recordFirebaseSkuConflictResolution,
   resetFirebaseDemo,
   resolveFirebaseProductBarcodeConflict,
   recordFirebaseSalesDispatchScan,
@@ -215,13 +216,15 @@ const SCAN_TYPE_LABELS = {
   packer: "ระบุคนแพ็ค",
   order_lookup: "ค้นหาออเดอร์",
   item_verify: "ตรวจสินค้า",
+  sku_conflict_resolution: "ยืนยัน SKU conflict",
   final_dispatch: "ยืนยันส่งออก",
   sales_ready_scan: "ฝ่ายขายบันทึกพร้อมส่ง"
 };
 
 const RESULT_LABELS = {
   success: "ผ่าน",
-  error: "ไม่ผ่าน"
+  error: "ไม่ผ่าน",
+  duplicate: "สแกนซ้ำ"
 };
 
 function hasBrokenThai(text) {
@@ -252,7 +255,8 @@ function translateMessage(message) {
     "Barcode is linked to a SKU that is not in this order.": "บาร์โค้ดนี้ผูกกับ SKU ที่ไม่มีในออเดอร์นี้",
     "At least one valid SKU item is required.": "ต้องมีสินค้าอย่างน้อย 1 รายการ",
     "Order key and tracking id are required.": "กรุณากรอกเลขออเดอร์และเลขพัสดุ",
-    "Order or tracking already exists.": "ออเดอร์หรือเลขพัสดุนี้มีอยู่แล้ว"
+    "Order or tracking already exists.": "ออเดอร์หรือเลขพัสดุนี้มีอยู่แล้ว",
+    "Already shipped / handed over": "สแกนซ้ำ: ออเดอร์นี้ส่งมอบแล้ว"
   };
   return exact[text] || text
     .replace("Row", "แถวที่")
@@ -294,6 +298,7 @@ async function firebaseApi(path, options = {}) {
   if (path === "/product-barcodes") return { product_barcodes: await listFirebaseProductBarcodes() };
   if (path === "/product-barcodes/import" && method === "POST") return importFirebaseProductBarcodes(body.records || []);
   if (path === "/product-barcodes/resolve-conflict" && method === "POST") return { product_barcode: await resolveFirebaseProductBarcodeConflict(body) };
+  if (path === "/product-barcodes/conflict-resolution" && method === "POST") return recordFirebaseSkuConflictResolution(body);
   if (path === "/dashboard/summary") return firebaseSummary();
   if (path === "/orders/ready") return { orders: await listFirebaseReadyOrders() };
   if (path === "/imports/batches") return { batches: await listFirebaseBatches() };
@@ -430,6 +435,7 @@ function findLocalOrders(db, lookup) {
 }
 
 function addLocalEvent(db, event) {
+  const createdAt = nowIso();
   db.events.unshift({
     id: uid(),
     order_id: event.order_id || null,
@@ -439,7 +445,8 @@ function addLocalEvent(db, event) {
     scanned_value: event.scanned_value,
     result: event.result,
     message: event.message || null,
-    created_at: nowIso()
+    created_at: createdAt,
+    event_date_key: createdAt.slice(0, 10)
   });
 }
 
@@ -479,6 +486,18 @@ function upsertLocalProductBarcode(db, payload) {
   if (!normalizedBarcode || !sku) throw new Error("Barcode and SKU are required.");
   const now = nowIso();
   const existing = db.productBarcodes.find((mapping) => mapping.barcode === normalizedBarcode);
+  if (existing?.sku && !sameSku(existing.sku, sku) && !payload.allow_overwrite) {
+    const error = new Error("Barcode already linked to another SKU.");
+    error.code = "product_barcode_conflict";
+    error.conflict = {
+      barcode: normalizedBarcode,
+      existing_sku: existing.sku,
+      existing_product_name: existing.product_name || null,
+      suggested_sku: sku,
+      suggested_product_name: payload.product_name || null
+    };
+    throw error;
+  }
   const record = {
     barcode: normalizedBarcode,
     sku,
@@ -631,21 +650,40 @@ async function localApi(path, options = {}) {
   if (path === "/product-barcodes/import" && method === "POST") {
     let imported = 0;
     let skipped = 0;
+    let conflicted = 0;
+    const conflicts = [];
     for (const record of body.records || []) {
       try {
         upsertLocalProductBarcode(db, record);
         imported += 1;
-      } catch {
+      } catch (error) {
+        if (error.code === "product_barcode_conflict") {
+          conflicted += 1;
+          conflicts.push(error.conflict);
+          continue;
+        }
         skipped += 1;
       }
     }
     writeLocalDb(db);
-    return { imported, skipped, product_barcodes: db.productBarcodes };
+    return { imported, skipped, conflicted, conflicts, product_barcodes: db.productBarcodes };
   }
   if (path === "/product-barcodes/resolve-conflict" && method === "POST") {
-    const saved = upsertLocalProductBarcode(db, body);
+    const saved = upsertLocalProductBarcode(db, { ...body, allow_overwrite: true });
     writeLocalDb(db);
     return { product_barcode: saved };
+  }
+  if (path === "/product-barcodes/conflict-resolution" && method === "POST") {
+    addLocalEvent(db, {
+      order_id: body.order_id || null,
+      packer_id: body.packer_id || null,
+      scan_type: "sku_conflict_resolution",
+      scanned_value: body.barcode || body.scanned_value || "",
+      result: "success",
+      message: `kept=${body.kept_sku || ""}; suggested=${body.suggested_sku || ""}; action=${body.action || "keep_existing"}`
+    });
+    writeLocalDb(db);
+    return { ok: true };
   }
   if (path === "/demo/reset" && method === "POST") return resetLocalDemo();
 
@@ -875,13 +913,14 @@ async function localApi(path, options = {}) {
     if (!order) throw new Error("Order not found.");
     const rawOrder = db.orders.find((item) => item.id === order.id);
     if (!["Packed", "Verified", "Shipped / Handed Over"].includes(rawOrder.status)) throw new Error("Order must be packed before dispatch.");
-    rawOrder.status = "Shipped / Handed Over";
+    const duplicate = rawOrder.status === "Shipped / Handed Over" || !!rawOrder.shipped_at;
+    if (!duplicate) rawOrder.status = "Shipped / Handed Over";
     rawOrder.shipped_at = rawOrder.shipped_at || nowIso();
     rawOrder.updated_at = nowIso();
     const provider = decorateOrder(db, rawOrder).shipping_provider;
-    addLocalEvent(db, { order_id: rawOrder.id, scan_type: "final_dispatch", scanned_value: body.tracking_or_order_id, result: "success", message: provider });
+    addLocalEvent(db, { order_id: rawOrder.id, scan_type: "final_dispatch", scanned_value: body.tracking_or_order_id, result: duplicate ? "duplicate" : "success", message: duplicate ? "Already shipped / handed over" : provider });
     writeLocalDb(db);
-    return { order_id: rawOrder.id, status: rawOrder.status, shipping_provider: { display_name: provider }, shipped_at: rawOrder.shipped_at };
+    return { order_id: rawOrder.id, status: rawOrder.status, shipping_provider: { display_name: provider }, shipped_at: rawOrder.shipped_at, duplicate };
   }
 
   if (path === "/packers" && method === "POST") {
@@ -1639,6 +1678,16 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
     setMessage("");
     try {
       if (!useSuggested) {
+        await api("/product-barcodes/conflict-resolution", {
+          method: "POST",
+          body: JSON.stringify({
+            order_id: order?.id || null,
+            barcode: skuConflict.barcode,
+            kept_sku: skuConflict.existing_sku,
+            suggested_sku: skuConflict.suggested_sku,
+            action: "keep_existing"
+          })
+        });
         setMessage(`ยืนยันให้บาร์โค้ด ${skuConflict.barcode} ใช้ SKU เดิม: ${skuConflict.existing_sku}`);
         setSkuConflict(null);
         setSku("");
@@ -1827,7 +1876,8 @@ function DispatchPage({ onRefresh }) {
           value,
           provider: data.shipping_provider?.display_name || "-",
           status: data.status,
-          shipped_at: data.shipped_at
+          shipped_at: data.shipped_at,
+          duplicate: !!data.duplicate
         },
         ...items
       ].slice(0, 6));
@@ -1864,7 +1914,7 @@ function DispatchPage({ onRefresh }) {
         </form>
         {result && (
           <div className="routeDisplay">
-            <span>วางที่โซน</span>
+            <span>{result.duplicate ? "สแกนซ้ำ / ส่งมอบแล้ว" : "วางที่โซน"}</span>
             <strong>{result.shipping_provider.display_name}</strong>
             <small>{result.status} · {formatDate(result.shipped_at)}</small>
           </div>
@@ -1874,7 +1924,7 @@ function DispatchPage({ onRefresh }) {
           {recentScans.map((scan, index) => (
             <div className="recentScanItem" key={`${scan.value}-${index}`}>
               <strong>{scan.value}</strong>
-              <span>{scan.provider} / {formatDate(scan.shipped_at)}</span>
+              <span>{scan.duplicate ? "สแกนซ้ำ / " : ""}{scan.provider} / {formatDate(scan.shipped_at)}</span>
             </div>
           ))}
           {!recentScans.length && <span className="emptyInline">พร้อมสแกนต่อเนื่อง ระบบจะบันทึกทันทีหลังยิงบาร์โค้ด</span>}
@@ -2401,6 +2451,7 @@ function mapSkuImportRows(rows) {
 function SkuDatabasePage() {
   const [items, setItems] = useState([]);
   const [file, setFile] = useState(null);
+  const [conflicts, setConflicts] = useState([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -2420,6 +2471,7 @@ function SkuDatabasePage() {
     setBusy(true);
     setError("");
     setMessage("");
+    setConflicts([]);
     try {
       const parsed = await parseImportFileAuto(file);
       const records = mapSkuImportRows(parsed.rows);
@@ -2429,7 +2481,8 @@ function SkuDatabasePage() {
         body: JSON.stringify({ records })
       });
       setItems(data.product_barcodes || []);
-      setMessage(`นำเข้า SKU แล้ว ${data.imported || 0} รายการ${data.skipped ? ` / ข้าม ${data.skipped} รายการ` : ""}`);
+      setConflicts(data.conflicts || []);
+      setMessage(`นำเข้า SKU แล้ว ${data.imported || 0} รายการ${data.skipped ? ` / ข้าม ${data.skipped} รายการ` : ""}${data.conflicted ? ` / พบชนกัน ${data.conflicted} รายการ` : ""}`);
       setFile(null);
     } catch (err) {
       setError(err.message);
@@ -2456,6 +2509,11 @@ function SkuDatabasePage() {
         </form>
         {message && <Alert>{message}</Alert>}
         {error && <Alert type="error">{error}</Alert>}
+        {conflicts.length > 0 && (
+          <Alert type="error">
+            พบ barcode ที่ชนกับฐานเดิม {conflicts.length} รายการ: {conflicts.slice(0, 5).map((item) => `${item.barcode} (${item.existing_sku} → ${item.suggested_sku})`).join(", ")}
+          </Alert>
+        )}
       </section>
       <section className="panel">
         <div className="panelHeader"><Barcode size={20} /><h3>ฐานข้อมูลบาร์โค้ด / SKU</h3></div>

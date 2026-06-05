@@ -42,6 +42,10 @@ function localDateKey() {
   return `${year}-${month}-${day}`;
 }
 
+function isoDateKey(value) {
+  return String(value || "").slice(0, 10) || null;
+}
+
 function uid() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -71,12 +75,50 @@ function periodMatchesIso(value, { date, month } = {}) {
 function orderMatchesPeriod(order, filters = {}) {
   if (!filters.date && !filters.month) return true;
   return [
+    order.shipped_date_key,
+    order.packed_date_key,
+    order.ready_to_pack_date_key,
+    order.imported_date_key,
+    order.created_date_key,
+    order.updated_date_key,
     order.shipped_at,
     order.packed_at,
     order.updated_at,
     order.imported_at,
     order.created_at
   ].some((value) => periodMatchesIso(value, filters));
+}
+
+function periodBounds({ date, month } = {}) {
+  if (date) return { start: date, end: date };
+  if (month) return { start: `${month}-01`, end: `${month}-31` };
+  return null;
+}
+
+function mergeUniqueById(rows) {
+  return Array.from(new Map(rows.filter(Boolean).map((row) => [row.id, row])).values());
+}
+
+function orderDatePatchFromFields(record = {}) {
+  const patch = {};
+  const fieldMap = {
+    created_at: "created_date_key",
+    imported_at: "imported_date_key",
+    ready_to_pack_at: "ready_to_pack_date_key",
+    packing_started_at: "packing_started_date_key",
+    packed_at: "packed_date_key",
+    shipped_at: "shipped_date_key",
+    updated_at: "updated_date_key"
+  };
+  for (const [source, target] of Object.entries(fieldMap)) {
+    if (record[source]) patch[target] = isoDateKey(record[source]);
+  }
+  return patch;
+}
+
+function eventDatePatch(record = {}) {
+  const createdAt = record.created_at || nowIso();
+  return { created_at: createdAt, event_date_key: isoDateKey(createdAt) };
 }
 
 function sameSku(left, right) {
@@ -141,6 +183,18 @@ async function upsertFirebaseProductBarcode(payload) {
   if (!normalizedBarcode || !sku) throw new Error("Barcode and SKU are required.");
   const cache = await getProductBarcodeCache();
   const existing = cache.get(normalizedBarcode);
+  if (existing?.sku && !sameSku(existing.sku, sku) && !payload.allow_overwrite) {
+    const error = new Error("Barcode already linked to another SKU.");
+    error.code = "product_barcode_conflict";
+    error.conflict = {
+      barcode: normalizedBarcode,
+      existing_sku: existing.sku,
+      existing_product_name: existing.product_name || null,
+      suggested_sku: sku,
+      suggested_product_name: payload.product_name || null
+    };
+    throw error;
+  }
   const now = nowIso();
   const record = {
     barcode: normalizedBarcode,
@@ -243,21 +297,41 @@ export async function importFirebaseProductBarcodes(records = []) {
   await ensureFirebaseReady();
   let imported = 0;
   let skipped = 0;
+  let conflicted = 0;
   const items = [];
+  const conflicts = [];
   for (const record of records) {
     try {
       const saved = await upsertFirebaseProductBarcode(record);
       items.push(saved);
       imported += 1;
-    } catch {
+    } catch (error) {
+      if (error.code === "product_barcode_conflict") {
+        conflicted += 1;
+        conflicts.push(error.conflict);
+        continue;
+      }
       skipped += 1;
     }
   }
-  return { imported, skipped, product_barcodes: await listFirebaseProductBarcodes(), imported_items: items };
+  return { imported, skipped, conflicted, conflicts, product_barcodes: await listFirebaseProductBarcodes(), imported_items: items };
 }
 
 export async function resolveFirebaseProductBarcodeConflict(payload) {
-  return upsertFirebaseProductBarcode(payload);
+  return upsertFirebaseProductBarcode({ ...payload, allow_overwrite: true });
+}
+
+export async function recordFirebaseSkuConflictResolution(payload = {}) {
+  await ensureFirebaseReady();
+  await addFirebaseScanEvent({
+    order_id: payload.order_id || null,
+    packer_id: payload.packer_id || null,
+    scan_type: "sku_conflict_resolution",
+    scanned_value: payload.barcode || payload.scanned_value || "",
+    result: "success",
+    message: `kept=${payload.kept_sku || ""}; suggested=${payload.suggested_sku || ""}; action=${payload.action || "keep_existing"}`
+  });
+  return { ok: true };
 }
 
 export async function createFirebasePacker(payload) {
@@ -297,20 +371,48 @@ export async function createFirebaseProvider(payload) {
 export async function listFirebaseOrders({ status, channel, q, date, month } = {}) {
   await ensureFirebaseReady();
   const db = requireFirestore();
-  const filters = [];
-  if (status) filters.push(where("status", "==", status));
-  if (channel) filters.push(where("channel", "==", channel));
+  const baseFilters = [];
+  if (status && !(date || month)) baseFilters.push(where("status", "==", status));
+  if (channel && !(date || month)) baseFilters.push(where("channel", "==", channel));
 
-  const snapshot = await getDocs(query(
-    collection(db, "orders"),
-    ...filters,
-    orderBy("updated_at", "desc"),
-    limit(date || month ? 1000 : 300)
-  ));
-  let orders = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+  let orders = [];
+  const bounds = periodBounds({ date, month });
+  if (bounds) {
+    const dateFields = ["shipped_date_key", "packed_date_key", "ready_to_pack_date_key", "imported_date_key", "created_date_key", "updated_date_key"];
+    const snapshots = await Promise.all(dateFields.map((field) => getDocs(query(
+      collection(db, "orders"),
+      where(field, ">=", bounds.start),
+      where(field, "<=", bounds.end),
+      orderBy(field, "desc"),
+      limit(2000)
+    )).catch((error) => {
+      console.warn(`Order date query skipped for ${field}.`, error);
+      return { docs: [] };
+    })));
+    orders = mergeUniqueById(snapshots.flatMap((snapshot) => snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))));
+
+    const fallbackSnapshot = await getDocs(query(collection(db, "orders"), orderBy("updated_at", "desc"), limit(1000)));
+    orders = mergeUniqueById([...orders, ...fallbackSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))]);
+  } else {
+    const snapshot = await getDocs(query(
+      collection(db, "orders"),
+      ...baseFilters,
+      orderBy("updated_at", "desc"),
+      limit(300)
+    ));
+    orders = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+  }
 
   if (date || month) {
     orders = orders.filter((order) => orderMatchesPeriod(order, { date, month }));
+  }
+
+  if (status && (date || month)) {
+    orders = orders.filter((order) => order.status === status);
+  }
+
+  if (channel && (date || month)) {
+    orders = orders.filter((order) => order.channel === channel);
   }
 
   if (q) {
@@ -322,6 +424,7 @@ export async function listFirebaseOrders({ status, channel, q, date, month } = {
     });
   }
 
+  orders = orders.sort((left, right) => String(right.updated_at || "").localeCompare(String(left.updated_at || "")));
   return decorateFirebaseOrders(orders);
 }
 
@@ -389,8 +492,9 @@ export async function createFirebaseOrder(payload) {
     updated_at: createdAt,
     items
   };
-  await setDoc(ref, record);
-  return decorateFirebaseOrder(record);
+  const savedRecord = { ...record, ...orderDatePatchFromFields(record) };
+  await setDoc(ref, savedRecord);
+  return decorateFirebaseOrder(savedRecord);
 }
 
 export async function lookupFirebaseOrder(value, packerId) {
@@ -519,18 +623,28 @@ export async function dispatchFirebaseOrder(value) {
   if (!order) throw new Error("Order not found.");
   if (!["Packed", "Verified", "Shipped / Handed Over"].includes(order.status)) throw new Error("Order must be packed before dispatch.");
 
+  const duplicate = order.status === "Shipped / Handed Over" || !!order.shipped_at;
   const shippedAt = order.shipped_at || nowIso();
-  await updateFirebaseOrder(order.id, {
-    status: "Shipped / Handed Over",
-    shipped_at: shippedAt
-  });
+  if (!duplicate) {
+    await updateFirebaseOrder(order.id, {
+      status: "Shipped / Handed Over",
+      shipped_at: shippedAt
+    });
+  }
   const refreshed = await getFirebaseOrder(order.id);
-  await addFirebaseScanEvent({ order_id: order.id, scan_type: "final_dispatch", scanned_value: value, result: "success", message: refreshed.shipping_provider });
+  await addFirebaseScanEvent({
+    order_id: order.id,
+    scan_type: "final_dispatch",
+    scanned_value: value,
+    result: duplicate ? "duplicate" : "success",
+    message: duplicate ? "Already shipped / handed over" : refreshed.shipping_provider
+  });
   return {
     order_id: order.id,
     status: "Shipped / Handed Over",
     shipping_provider: { display_name: refreshed.shipping_provider },
-    shipped_at: shippedAt
+    shipped_at: shippedAt,
+    duplicate
   };
 }
 
@@ -546,11 +660,39 @@ export async function identifyFirebasePacker(barcode) {
 export async function listFirebaseScanEvents({ date, month } = {}) {
   await ensureFirebaseReady();
   const db = requireFirestore();
-  const snapshot = await getDocs(query(collection(db, "scan_events"), orderBy("created_at", "desc"), limit(date || month ? 1000 : 100)));
-  const events = snapshot.docs
-    .map((item) => ({ id: item.id, ...item.data() }))
-    .filter((event) => periodMatchesIso(event.created_at, { date, month }));
-  const [orders, packers] = await Promise.all([listFirebaseOrders(), listFirebasePackers()]);
+  const bounds = periodBounds({ date, month });
+  let events = [];
+  if (bounds) {
+    const snapshot = await getDocs(query(
+      collection(db, "scan_events"),
+      where("event_date_key", ">=", bounds.start),
+      where("event_date_key", "<=", bounds.end),
+      orderBy("event_date_key", "desc"),
+      limit(2000)
+    )).catch((error) => {
+      console.warn("Scan event date query skipped.", error);
+      return { docs: [] };
+    });
+    events = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+
+    const fallbackSnapshot = await getDocs(query(collection(db, "scan_events"), orderBy("created_at", "desc"), limit(1000)));
+    events = mergeUniqueById([...events, ...fallbackSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))]);
+  } else {
+    const snapshot = await getDocs(query(collection(db, "scan_events"), orderBy("created_at", "desc"), limit(100)));
+    events = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+  }
+  events = events
+    .filter((event) => periodMatchesIso(event.event_date_key || event.created_at, { date, month }))
+    .sort((left, right) => String(right.created_at || "").localeCompare(String(left.created_at || "")));
+  const [listedOrders, packers] = await Promise.all([listFirebaseOrders(), listFirebasePackers()]);
+  const missingOrderIds = [...new Set(events
+    .map((event) => event.order_id)
+    .filter((id) => id && !listedOrders.some((order) => order.id === id)))];
+  const fetchedOrders = await Promise.all(missingOrderIds.map(async (id) => {
+    const snapshot = await getDoc(doc(db, "orders", id)).catch(() => null);
+    return snapshot?.exists?.() ? { id: snapshot.id, ...snapshot.data() } : null;
+  }));
+  const orders = mergeUniqueById([...listedOrders, ...fetchedOrders]);
   return events.map((event) => {
     const order = orders.find((item) => item.id === event.order_id);
     const packer = packers.find((item) => item.id === event.packer_id);
@@ -666,6 +808,7 @@ export async function importFirebaseFile({ file, channel, deduplicationAction })
       }
 
       if (existing && deduplicationAction === "overwrite") {
+        const readyAt = nowIso();
         await updateFirebaseOrder(existing.id, {
           ...mapped,
           items: mapped.items.map((item) => ({
@@ -681,7 +824,7 @@ export async function importFirebaseFile({ file, channel, deduplicationAction })
           status: "Ready to Pack",
           source_file_name: file.name,
           deduplication_action: "overwritten",
-          ready_to_pack_at: nowIso()
+          ready_to_pack_at: readyAt
         });
         stats.overwritten_count += 1;
       } else {
@@ -740,17 +883,32 @@ export async function firebaseSummary() {
 
 async function updateFirebaseOrder(id, patch) {
   const db = requireFirestore();
-  await updateDoc(doc(db, "orders", id), { ...patch, updated_at: nowIso() });
+  const updatedAt = nowIso();
+  const nextPatch = { ...patch, updated_at: updatedAt };
+  await updateDoc(doc(db, "orders", id), { ...nextPatch, ...orderDatePatchFromFields(nextPatch) });
 }
 
 async function addFirebaseScanEvent(event) {
   const db = requireFirestore();
-  await addDoc(collection(db, "scan_events"), { ...event, created_at: nowIso() });
+  await addDoc(collection(db, "scan_events"), { ...event, ...eventDatePatch(event) });
 }
 
 async function lookupOnly(value) {
+  await ensureFirebaseReady();
+  const db = requireFirestore();
+  const rawTerm = String(value || "").trim();
+  if (!rawTerm) return null;
+
+  for (const field of ["tracking_id", "order_key"]) {
+    const snapshot = await getDocs(query(collection(db, "orders"), where(field, "==", rawTerm), limit(1)));
+    if (!snapshot.empty) {
+      const item = snapshot.docs[0];
+      return decorateFirebaseOrder({ id: item.id, ...item.data() });
+    }
+  }
+
   const orders = await listFirebaseOrders();
-  const term = String(value || "").trim().toLowerCase();
+  const term = rawTerm.toLowerCase();
   return orders.find((candidate) => {
     return String(candidate.tracking_id || "").toLowerCase() === term
       || String(candidate.order_key || "").toLowerCase() === term

@@ -1116,6 +1116,11 @@ td {
   color: #145a9f;
 }
 
+.resultPill.duplicate {
+  background: #fff1d3;
+  color: #8b5a00;
+}
+
 .resultPill.error {
   background: #ffe8e4;
   color: #a72816;
