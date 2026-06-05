@@ -151,6 +151,7 @@ const NAV_ITEMS = [
   { id: "packing", label: "3. แพ็คสินค้า", icon: PackageCheck },
   { id: "dispatch", label: "4. ส่งมอบขนส่ง", icon: Send },
   { id: "sales", label: "ฝ่ายขาย", icon: Archive },
+  { id: "reports", label: "รายงาน", icon: FileClock },
   { id: "orders", label: "รายการออเดอร์", icon: ClipboardList },
   { id: "audit", label: "ประวัติสแกน", icon: FileClock },
   { id: "settings", label: "ตั้งค่า", icon: Settings }
@@ -163,6 +164,7 @@ const TITLE_LABELS = {
   "Packing Station": "3. แพ็คสินค้า",
   "Final Sorting & Dispatch": "4. ส่งมอบขนส่ง",
   "Sales Dispatch Sheet": "ฝ่ายขาย",
+  "Executive Reports": "รายงาน",
   "Order Control Center": "รายการออเดอร์",
   "Scan Audit": "ประวัติการสแกน",
   Settings: "ตั้งค่า"
@@ -175,6 +177,7 @@ const SUBTITLE_LABELS = {
   "Packing Station": "สแกนใบปะหน้าเพื่อดึงออเดอร์ แล้วสแกน SKU ทีละชิ้นให้ครบจำนวน",
   "Final Sorting & Dispatch": "สแกนกล่องที่ปิดแล้ว ระบบจะแสดงโซนขนส่งและเปลี่ยนสถานะเป็นส่งมอบแล้ว",
   "Sales Dispatch Sheet": "สแกนใบปะหน้าด้วยมือถือเพื่อเก็บรายการพร้อมจัดส่งประจำวัน แยกตามแพลตฟอร์ม และส่งออกเป็นไฟล์สำหรับ Excel",
+  "Executive Reports": "สรุปรายวัน/รายเดือนสำหรับผู้บริหาร ทั้งภาพรวม ปัญหา ยอดส่งออก และยอดค้างส่ง",
   "Order Control Center": "ค้นหา ตรวจสถานะ และเปิดดูรายละเอียดออเดอร์ทั้งหมด",
   "Scan Audit": "ดูย้อนหลังว่าใครสแกนอะไร ผ่านหรือไม่ผ่าน ใช้ตรวจปัญหาได้",
   Settings: "จัดการพนักงานแพ็คและรายชื่อขนส่งที่ใช้ในระบบ"
@@ -284,7 +287,15 @@ async function firebaseApi(path, options = {}) {
   if (path === "/dashboard/summary") return firebaseSummary();
   if (path === "/orders/ready") return { orders: await listFirebaseReadyOrders() };
   if (path === "/imports/batches") return { batches: await listFirebaseBatches() };
-  if (path === "/scan-events") return { events: await listFirebaseScanEvents() };
+  if (path.startsWith("/scan-events")) {
+    const params = new URLSearchParams(path.split("?")[1] || "");
+    return {
+      events: await listFirebaseScanEvents({
+        date: params.get("date") || "",
+        month: params.get("month") || ""
+      })
+    };
+  }
   if (path.startsWith("/sales/dispatch-scans") && method === "GET") {
     const params = new URLSearchParams(path.split("?")[1] || "");
     return {
@@ -312,7 +323,9 @@ async function firebaseApi(path, options = {}) {
       orders: await listFirebaseOrders({
         q: params.get("q") || "",
         status: params.get("status") || "",
-        channel: params.get("channel") || ""
+        channel: params.get("channel") || "",
+        date: params.get("date") || "",
+        month: params.get("month") || ""
       })
     };
   }
@@ -605,10 +618,13 @@ async function localApi(path, options = {}) {
     const q = String(params.get("q") || "").toLowerCase();
     const status = params.get("status") || "";
     const channel = params.get("channel") || "";
+    const date = params.get("date") || "";
+    const month = params.get("month") || "";
     return {
       orders: db.orders
         .filter((order) => !status || order.status === status)
         .filter((order) => !channel || order.channel === channel)
+        .filter((order) => orderMatchesPeriod(order, { date, month }))
         .filter((order) => !q || order.tracking_id.toLowerCase().includes(q) || order.order_key.toLowerCase().includes(q) || String(order.customer_name || "").toLowerCase().includes(q))
         .map((order) => decorateOrder(db, order))
     };
@@ -628,13 +644,18 @@ async function localApi(path, options = {}) {
   }
 
   if (path === "/imports/batches") return { batches: db.batches };
-  if (path === "/scan-events") {
+  if (path.startsWith("/scan-events")) {
+    const params = new URLSearchParams(path.split("?")[1] || "");
+    const date = params.get("date") || "";
+    const month = params.get("month") || "";
     return {
-      events: db.events.map((event) => {
-        const order = db.orders.find((item) => item.id === event.order_id);
-        const packer = db.packers.find((item) => item.id === event.packer_id);
-        return { ...event, order_key: order?.order_key, tracking_id: order?.tracking_id, packer_name: packer?.display_name };
-      })
+      events: db.events
+        .filter((event) => periodMatchesIso(event.created_at, { date, month }))
+        .map((event) => {
+          const order = db.orders.find((item) => item.id === event.order_id);
+          const packer = db.packers.find((item) => item.id === event.packer_id);
+          return { ...event, order_key: order?.order_key, tracking_id: order?.tracking_id, packer_name: packer?.display_name };
+        })
     };
   }
 
@@ -852,6 +873,25 @@ function daysInMonth(monthValue) {
   return new Date(year, month, 0).getDate();
 }
 
+function periodMatchesIso(value, { date, month } = {}) {
+  const key = String(value || "").slice(0, 10);
+  if (!key) return false;
+  if (date) return key === date;
+  if (month) return key.startsWith(month);
+  return true;
+}
+
+function orderMatchesPeriod(order, filters = {}) {
+  if (!filters.date && !filters.month) return true;
+  return [
+    order.shipped_at,
+    order.packed_at,
+    order.updated_at,
+    order.imported_at,
+    order.created_at
+  ].some((value) => periodMatchesIso(value, filters));
+}
+
 function downloadBlob(blob, fileName) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -949,16 +989,24 @@ function ScannerField({
   );
 }
 
-function CameraScanner({ title, profile = "mixed", onResult, onClose }) {
+function CameraScanner({ title, profile = "mixed", closeOnResult = true, onResult, onClose }) {
   const videoRef = useRef(null);
   const [error, setError] = useState("");
   const [torchAvailable, setTorchAvailable] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const controlsRef = useRef(null);
+  const onResultRef = useRef(onResult);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onResultRef.current = onResult;
+    onCloseRef.current = onClose;
+  }, [onClose, onResult]);
 
   useEffect(() => {
     let controls;
     let active = true;
+    let resumeTimer;
     const reader = createScannerReader(profile);
 
     async function start() {
@@ -966,9 +1014,15 @@ function CameraScanner({ title, profile = "mixed", onResult, onClose }) {
         const handleResult = (result) => {
           if (!active || !result) return;
           active = false;
-          onResult(result.getText());
-          controls?.stop();
-          onClose();
+          onResultRef.current(result.getText());
+          if (closeOnResult) {
+            controls?.stop();
+            onCloseRef.current();
+            return;
+          }
+          resumeTimer = window.setTimeout(() => {
+            active = true;
+          }, 900);
         };
         try {
           controls = await reader.decodeFromConstraints(CAMERA_SCAN_CONSTRAINTS, videoRef.current, handleResult);
@@ -987,10 +1041,11 @@ function CameraScanner({ title, profile = "mixed", onResult, onClose }) {
     start();
     return () => {
       active = false;
+      if (resumeTimer) window.clearTimeout(resumeTimer);
       controls?.stop();
       controlsRef.current = null;
     };
-  }, [onClose, onResult, profile]);
+  }, [closeOnResult, profile]);
 
   async function toggleTorch() {
     if (!controlsRef.current?.switchTorch) return;
@@ -1619,7 +1674,9 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
 function DispatchPage({ onRefresh }) {
   const [lookup, setLookup] = useState("");
   const [result, setResult] = useState(null);
+  const [recentScans, setRecentScans] = useState([]);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const inputRef = useRef(null);
 
@@ -1627,22 +1684,41 @@ function DispatchPage({ onRefresh }) {
     inputRef.current?.focus();
   }, []);
 
-  async function dispatch(event) {
-    event.preventDefault();
+  async function dispatchValue(rawValue) {
+    const value = String(rawValue || "").trim();
+    if (!value || busy) return;
     setError("");
     setResult(null);
+    setBusy(true);
     try {
       const data = await api("/dispatch/final-scan", {
         method: "POST",
-        body: JSON.stringify({ tracking_or_order_id: lookup })
+        body: JSON.stringify({ tracking_or_order_id: value })
       });
       setResult(data);
+      setRecentScans((items) => [
+        {
+          value,
+          provider: data.shipping_provider?.display_name || "-",
+          status: data.status,
+          shipped_at: data.shipped_at
+        },
+        ...items
+      ].slice(0, 6));
       setLookup("");
       await onRefresh();
     } catch (err) {
       setError(err.message);
       playErrorSound();
+    } finally {
+      setBusy(false);
+      setTimeout(() => inputRef.current?.focus(), 50);
     }
+  }
+
+  async function dispatch(event) {
+    event.preventDefault();
+    await dispatchValue(lookup);
   }
 
   return (
@@ -1656,9 +1732,9 @@ function DispatchPage({ onRefresh }) {
         </div>
         <form className="dispatchForm" onSubmit={dispatch}>
           <label>สแกนใบปะหน้าขนส่ง
-            <input ref={inputRef} value={lookup} onChange={(event) => setLookup(event.target.value)} placeholder="สแกน Tracking ID หรือ Order ID" />
+            <input ref={inputRef} value={lookup} onChange={(event) => setLookup(event.target.value)} disabled={busy} placeholder="สแกน Tracking ID หรือ Order ID" />
           </label>
-          <button className="primary"><Send size={20} />ยืนยันส่งมอบ</button>
+          <button className="primary" disabled={busy || !lookup.trim()}><Send size={20} />บันทึกส่งมอบ</button>
         </form>
         {result && (
           <div className="routeDisplay">
@@ -1668,10 +1744,20 @@ function DispatchPage({ onRefresh }) {
           </div>
         )}
         {error && <Alert type="error">{error}</Alert>}
+        <div className="recentScanList">
+          {recentScans.map((scan, index) => (
+            <div className="recentScanItem" key={`${scan.value}-${index}`}>
+              <strong>{scan.value}</strong>
+              <span>{scan.provider} / {formatDate(scan.shipped_at)}</span>
+            </div>
+          ))}
+          {!recentScans.length && <span className="emptyInline">พร้อมสแกนต่อเนื่อง ระบบจะบันทึกทันทีหลังยิงบาร์โค้ด</span>}
+        </div>
         {cameraOpen && (
           <CameraScanner
             title="ใช้กล้องสแกนใบปะหน้า"
-            onResult={setLookup}
+            closeOnResult={false}
+            onResult={dispatchValue}
             onClose={() => setCameraOpen(false)}
           />
         )}
@@ -1976,9 +2062,196 @@ function SalesDispatchPage() {
   );
 }
 
+function countBy(items, getter) {
+  return Object.values(items.reduce((acc, item) => {
+    const key = getter(item) || "-";
+    acc[key] ||= { label: key, count: 0 };
+    acc[key].count += 1;
+    return acc;
+  }, {})).sort((left, right) => right.count - left.count);
+}
+
+function buildReportRows({ orders, events, salesScans, scopeLabel }) {
+  const shippedOrders = orders.filter((order) => order.status === "Shipped / Handed Over");
+  const packedOrders = orders.filter((order) => ["Packed", "Verified", "Shipped / Handed Over"].includes(order.status));
+  const pendingOrders = orders.filter((order) => ["Ready to Pack", "Packing In Progress", "Scan Completed", "Packed", "Verified"].includes(order.status));
+  const problemEvents = events.filter((event) => event.result === "error");
+  const summaryRows = [
+    { section: "summary", topic: "period", value: scopeLabel, detail: "" },
+    { section: "summary", topic: "total_orders", value: orders.length, detail: "orders matched selected date/month" },
+    { section: "summary", topic: "packed_orders", value: packedOrders.length, detail: "packed, verified, or shipped" },
+    { section: "summary", topic: "shipped_orders", value: shippedOrders.length, detail: "handed over to carrier" },
+    { section: "summary", topic: "pending_shipments", value: pendingOrders.length, detail: "not fully shipped yet" },
+    { section: "summary", topic: "scan_problems", value: problemEvents.length, detail: "scan events with error result" },
+    { section: "summary", topic: "sales_ready_scans", value: salesScans.length, detail: "sales dispatch scan sheet records" }
+  ];
+  const statusRows = countBy(orders, (order) => statusLabel(order.status)).map((item) => ({ section: "orders_by_status", topic: item.label, value: item.count, detail: "" }));
+  const channelRows = countBy(orders, (order) => channelLabel(order.channel)).map((item) => ({ section: "orders_by_channel", topic: item.label, value: item.count, detail: "" }));
+  const providerRows = countBy(orders, (order) => order.shipping_provider || "-").map((item) => ({ section: "orders_by_provider", topic: item.label, value: item.count, detail: "" }));
+  const problemRows = problemEvents.slice(0, 50).map((event) => ({
+    section: "problem",
+    topic: SCAN_TYPE_LABELS[event.scan_type] || event.scan_type,
+    value: event.scanned_value || "",
+    detail: translateMessage(event.message || "")
+  }));
+  const orderRows = orders.map((order) => ({
+    section: "order",
+    topic: order.tracking_id,
+    value: statusLabel(order.status),
+    detail: `${channelLabel(order.channel)} / ${order.shipping_provider || "-"} / ${order.customer_name || "-"}`
+  }));
+  return [...summaryRows, ...statusRows, ...channelRows, ...providerRows, ...problemRows, ...orderRows];
+}
+
+function ExecutiveReportsPage() {
+  const [date, setDate] = useState(todayKey());
+  const [month, setMonth] = useState(monthKey());
+  const [scope, setScope] = useState("daily");
+  const [orders, setOrders] = useState([]);
+  const [events, setEvents] = useState([]);
+  const [salesScans, setSalesScans] = useState([]);
+  const [error, setError] = useState("");
+
+  const scopeLabel = scope === "daily" ? date : month;
+
+  async function loadReport(nextScope = scope, nextDate = date, nextMonth = month) {
+    const params = new URLSearchParams();
+    if (nextScope === "daily") params.set("date", nextDate);
+    else params.set("month", nextMonth);
+    setError("");
+    try {
+      const [orderData, eventData, salesData] = await Promise.all([
+        api(`/orders?${params.toString()}`),
+        api(`/scan-events?${params.toString()}`),
+        api(`/sales/dispatch-scans?${params.toString()}`)
+      ]);
+      setOrders(orderData.orders || []);
+      setEvents(eventData.events || []);
+      setSalesScans(salesData.scans || []);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  useEffect(() => {
+    loadReport().catch((err) => setError(err.message));
+  }, []);
+
+  const shippedOrders = orders.filter((order) => order.status === "Shipped / Handed Over");
+  const packedOrders = orders.filter((order) => ["Packed", "Verified", "Shipped / Handed Over"].includes(order.status));
+  const pendingOrders = orders.filter((order) => ["Ready to Pack", "Packing In Progress", "Scan Completed", "Packed", "Verified"].includes(order.status));
+  const problemEvents = events.filter((event) => event.result === "error");
+  const byProvider = countBy(orders, (order) => order.shipping_provider || "-");
+  const byStatus = countBy(orders, (order) => statusLabel(order.status));
+  const reportRows = buildReportRows({ orders, events, salesScans, scopeLabel });
+
+  function changeScope(nextScope) {
+    setScope(nextScope);
+    loadReport(nextScope, date, month);
+  }
+
+  function changeDate(nextDate) {
+    setDate(nextDate);
+    setMonth(monthKey(nextDate));
+    loadReport("daily", nextDate, monthKey(nextDate));
+  }
+
+  function changeMonth(nextMonth) {
+    setMonth(nextMonth);
+    loadReport("monthly", date, nextMonth);
+  }
+
+  function exportCsv() {
+    if (!reportRows.length) return;
+    downloadBlob(new Blob([recordsToCsv(reportRows)], { type: "text/csv;charset=utf-8" }), `executive-report-${scopeLabel}.csv`);
+  }
+
+  function exportExcel() {
+    exportRecordsAsExcel(reportRows, `executive-report-${scopeLabel}.xls`);
+  }
+
+  return (
+    <div className="pageStack">
+      <PageTitle
+        icon={FileClock}
+        title="Executive Reports"
+        subtitle="สรุปรายวัน/รายเดือนสำหรับผู้บริหาร ทั้งภาพรวม ปัญหา ยอดส่งออก และยอดค้างส่ง"
+        action={<button className="secondary" onClick={() => loadReport()}><RefreshCw size={18} />รีเฟรช</button>}
+      />
+
+      <section className="panel">
+        <div className="reportToolbar">
+          <div className="segmentedControl">
+            <button className={scope === "daily" ? "active" : ""} onClick={() => changeScope("daily")}>รายวัน</button>
+            <button className={scope === "monthly" ? "active" : ""} onClick={() => changeScope("monthly")}>รายเดือน</button>
+          </div>
+          {scope === "daily" ? (
+            <label>วันที่
+              <input type="date" value={date} onChange={(event) => changeDate(event.target.value)} />
+            </label>
+          ) : (
+            <label>เดือน
+              <input type="month" value={month} onChange={(event) => changeMonth(event.target.value)} />
+            </label>
+          )}
+          <div className="toolbarActions">
+            <button className="secondary" disabled={!reportRows.length} onClick={exportCsv}><FileClock size={18} />CSV</button>
+            <button className="primary" disabled={!reportRows.length} onClick={exportExcel}><Archive size={18} />Excel</button>
+          </div>
+        </div>
+      </section>
+
+      <div className="salesSummaryGrid">
+        <Metric label="ออเดอร์ทั้งหมด" value={orders.length} />
+        <Metric label="แพ็คแล้ว" value={packedOrders.length} tone="ok" />
+        <Metric label="ส่งออกแล้ว" value={shippedOrders.length} tone="ok" />
+        <Metric label="ค้างส่ง" value={pendingOrders.length} tone={pendingOrders.length ? "warn" : "ok"} />
+        <Metric label="ปัญหาการสแกน" value={problemEvents.length} tone={problemEvents.length ? "danger" : "ok"} />
+        <Metric label="ฝ่ายขายสแกนพร้อมส่ง" value={salesScans.length} />
+      </div>
+
+      {error && <Alert type="error">{error}</Alert>}
+
+      <div className="salesInsightsGrid">
+        <section className="panel">
+          <div className="panelHeader"><Truck size={20} /><h3>ขนส่ง</h3></div>
+          <DataTable
+            columns={["ขนส่ง", "จำนวน"]}
+            rows={byProvider.map((item) => [item.label, item.count])}
+            empty="ยังไม่มีข้อมูล"
+          />
+        </section>
+        <section className="panel">
+          <div className="panelHeader"><LayoutDashboard size={20} /><h3>สถานะ</h3></div>
+          <DataTable
+            columns={["สถานะ", "จำนวน"]}
+            rows={byStatus.map((item) => [item.label, item.count])}
+            empty="ยังไม่มีข้อมูล"
+          />
+        </section>
+      </div>
+
+      <section className="panel">
+        <div className="panelHeader"><AlertTriangle size={20} /><h3>ปัญหาที่พบ</h3></div>
+        <DataTable
+          columns={["เวลา", "ประเภท", "ค่าที่สแกน", "ข้อความ", "ออเดอร์"]}
+          rows={problemEvents.map((event) => [
+            formatDate(event.created_at),
+            SCAN_TYPE_LABELS[event.scan_type] || event.scan_type,
+            event.scanned_value,
+            translateMessage(event.message || "-"),
+            event.tracking_id || event.order_key || "-"
+          ])}
+          empty="ไม่พบปัญหาในช่วงที่เลือก"
+        />
+      </section>
+    </div>
+  );
+}
+
 function OrdersPage({ onRefresh }) {
   const [orders, setOrders] = useState([]);
-  const [filters, setFilters] = useState({ q: "", status: "", channel: "" });
+  const [filters, setFilters] = useState({ q: "", status: "", channel: "", date: "", month: "" });
   const [selected, setSelected] = useState(null);
 
   async function loadOrders(nextFilters = filters) {
@@ -2031,7 +2304,18 @@ function OrdersPage({ onRefresh }) {
               <option value="reservation">ใบสั่งจอง/ออเดอร์ทั่วไป</option>
             </select>
           </label>
+          <label>วันที่
+            <input type="date" value={filters.date} onChange={(event) => setFilters({ ...filters, date: event.target.value, month: event.target.value ? "" : filters.month })} />
+          </label>
+          <label>เดือน
+            <input type="month" value={filters.month} onChange={(event) => setFilters({ ...filters, month: event.target.value, date: event.target.value ? "" : filters.date })} />
+          </label>
           <button className="primary"><Search size={18} />ค้นหา</button>
+          <button type="button" className="secondary" onClick={() => {
+            const resetFilters = { q: "", status: "", channel: "", date: "", month: "" };
+            setFilters(resetFilters);
+            loadOrders(resetFilters);
+          }}>ล้างตัวกรอง</button>
           <button type="button" className="secondary" onClick={() => Promise.all([loadOrders(), onRefresh()])}><RefreshCw size={18} />รีเฟรช</button>
         </form>
       </section>
@@ -2086,9 +2370,14 @@ function OrdersPage({ onRefresh }) {
 
 function AuditPage() {
   const [events, setEvents] = useState([]);
+  const [filters, setFilters] = useState({ date: todayKey(), month: "" });
 
-  async function loadEvents() {
-    const data = await api("/scan-events");
+  async function loadEvents(nextFilters = filters) {
+    const params = new URLSearchParams();
+    Object.entries(nextFilters).forEach(([key, value]) => {
+      if (value) params.set(key, value);
+    });
+    const data = await api(`/scan-events?${params.toString()}`);
     setEvents(data.events);
   }
 
@@ -2098,8 +2387,32 @@ function AuditPage() {
 
   return (
     <div className="pageStack">
-      <PageTitle icon={FileClock} title="Scan Audit" subtitle="ประวัติการสแกนทั้งหมด ใช้ไล่ปัญหา SKU ผิดหรือออเดอร์ไม่พบ" action={<button className="secondary" onClick={loadEvents}><RefreshCw size={18} />รีเฟรช</button>} />
+      <PageTitle icon={FileClock} title="Scan Audit" subtitle="ประวัติการสแกนทั้งหมด ใช้ไล่ปัญหา SKU ผิดหรือออเดอร์ไม่พบ" action={<button className="secondary" onClick={() => loadEvents(filters)}><RefreshCw size={18} />รีเฟรช</button>} />
       <section className="panel">
+        <div className="salesToolbar">
+          <label>วันที่
+            <input type="date" value={filters.date} onChange={(event) => {
+              const next = { date: event.target.value, month: "" };
+              setFilters(next);
+              loadEvents(next);
+            }} />
+          </label>
+          <label>เดือน
+            <input type="month" value={filters.month} onChange={(event) => {
+              const next = { date: "", month: event.target.value };
+              setFilters(next);
+              loadEvents(next);
+            }} />
+          </label>
+          <div className="toolbarActions">
+            <button className="secondary" onClick={() => {
+              const next = { date: todayKey(), month: "" };
+              setFilters(next);
+              loadEvents(next);
+            }}>วันนี้</button>
+            <button className="secondary" onClick={() => loadEvents(filters)}><RefreshCw size={18} />รีเฟรช</button>
+          </div>
+        </div>
         <DataTable
           columns={["เวลา", "ประเภท", "ค่าที่สแกน", "ผล", "ข้อความ", "ออเดอร์", "คนแพ็ค"]}
           rows={events.map((event) => [
@@ -2274,6 +2587,7 @@ function App() {
     packing: <PackingPage readyOrders={readyOrders} onRefresh={refresh} initialLookup={packingLookup} />,
     dispatch: <DispatchPage onRefresh={refresh} />,
     sales: <SalesDispatchPage />,
+    reports: <ExecutiveReportsPage />,
     orders: <OrdersPage onRefresh={refresh} />,
     audit: <AuditPage />,
     settings: <SettingsPage onRefresh={refresh} />

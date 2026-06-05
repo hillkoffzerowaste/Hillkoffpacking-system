@@ -60,6 +60,25 @@ async function all(collectionName) {
   return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
 }
 
+function periodMatchesIso(value, { date, month } = {}) {
+  const key = String(value || "").slice(0, 10);
+  if (!key) return false;
+  if (date) return key === date;
+  if (month) return key.startsWith(month);
+  return true;
+}
+
+function orderMatchesPeriod(order, filters = {}) {
+  if (!filters.date && !filters.month) return true;
+  return [
+    order.shipped_at,
+    order.packed_at,
+    order.updated_at,
+    order.imported_at,
+    order.created_at
+  ].some((value) => periodMatchesIso(value, filters));
+}
+
 function sameSku(left, right) {
   return String(left || "").trim().toUpperCase() === String(right || "").trim().toUpperCase();
 }
@@ -207,7 +226,7 @@ export async function createFirebaseProvider(payload) {
   return listFirebaseProviders();
 }
 
-export async function listFirebaseOrders({ status, channel, q } = {}) {
+export async function listFirebaseOrders({ status, channel, q, date, month } = {}) {
   await ensureFirebaseReady();
   const db = requireFirestore();
   const filters = [];
@@ -218,9 +237,13 @@ export async function listFirebaseOrders({ status, channel, q } = {}) {
     collection(db, "orders"),
     ...filters,
     orderBy("updated_at", "desc"),
-    limit(300)
+    limit(date || month ? 1000 : 300)
   ));
   let orders = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+
+  if (date || month) {
+    orders = orders.filter((order) => orderMatchesPeriod(order, { date, month }));
+  }
 
   if (q) {
     const term = q.toLowerCase();
@@ -448,11 +471,13 @@ export async function identifyFirebasePacker(barcode) {
   return { packer_id: packer.id, display_name: packer.display_name };
 }
 
-export async function listFirebaseScanEvents() {
+export async function listFirebaseScanEvents({ date, month } = {}) {
   await ensureFirebaseReady();
   const db = requireFirestore();
-  const snapshot = await getDocs(query(collection(db, "scan_events"), orderBy("created_at", "desc"), limit(100)));
-  const events = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+  const snapshot = await getDocs(query(collection(db, "scan_events"), orderBy("created_at", "desc"), limit(date || month ? 1000 : 100)));
+  const events = snapshot.docs
+    .map((item) => ({ id: item.id, ...item.data() }))
+    .filter((event) => periodMatchesIso(event.created_at, { date, month }));
   const [orders, packers] = await Promise.all([listFirebaseOrders(), listFirebasePackers()]);
   return events.map((event) => {
     const order = orders.find((item) => item.id === event.order_id);

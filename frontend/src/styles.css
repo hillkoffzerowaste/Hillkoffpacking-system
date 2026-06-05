@@ -973,6 +973,65 @@ input:disabled {
   overflow-wrap: anywhere;
 }
 
+.recentScanList {
+  display: grid;
+  gap: 8px;
+}
+
+.recentScanItem,
+.emptyInline {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 7px;
+  color: #d9e7df;
+  display: grid;
+  gap: 4px;
+  min-height: 48px;
+  padding: 10px 12px;
+}
+
+.recentScanItem strong {
+  color: #fff;
+  overflow-wrap: anywhere;
+}
+
+.recentScanItem span,
+.emptyInline {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.reportToolbar {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(180px, 240px) 1fr;
+}
+
+.segmentedControl {
+  background: #edf2ea;
+  border: 1px solid #dce4d8;
+  border-radius: 8px;
+  display: inline-grid;
+  gap: 4px;
+  grid-template-columns: repeat(2, minmax(90px, 1fr));
+  padding: 4px;
+}
+
+.segmentedControl button {
+  background: transparent;
+  border-radius: 6px;
+  color: #536153;
+  font-weight: 900;
+  min-height: 38px;
+  padding: 8px 12px;
+}
+
+.segmentedControl button.active {
+  background: #176543;
+  color: #fff;
+}
+
 .tableWrap {
   overflow-x: auto;
 }
@@ -1209,13 +1268,22 @@ dd {
     max-width: none;
   }
 
+  .reportToolbar {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .segmentedControl {
+    width: 100%;
+  }
+
   .toolbarActions {
     justify-content: stretch;
   }
 
-.toolbarActions button {
-  flex: 1 1 150px;
-}
+  .toolbarActions button {
+    flex: 1 1 150px;
+  }
 }
 
 @media (max-width: 420px) {
