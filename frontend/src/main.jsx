@@ -2799,8 +2799,22 @@ function App() {
     refresh();
   }, []);
 
-  function reloadAppVersion() {
-    window.location.reload();
+  async function reloadAppVersion() {
+    try {
+      if ("serviceWorker" in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+      }
+      if ("caches" in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((key) => caches.delete(key)));
+      }
+    } catch (error) {
+      console.warn("App cache clear failed before reload.", error);
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set("app_refresh", String(Date.now()));
+    window.location.replace(url.toString());
   }
 
   const page = {
