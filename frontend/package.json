@@ -11,6 +11,7 @@
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",
     "@zxing/browser": "^0.2.0",
+    "@zxing/library": "^0.22.0",
     "firebase": "^12.13.0",
     "jszip": "^3.10.1",
     "lucide-react": "^0.555.0",

@@ -506,6 +506,14 @@ input:disabled {
   justify-content: space-between;
 }
 
+.cameraActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .cameraHeader strong,
 .cameraHeader span {
   display: block;
@@ -540,6 +548,42 @@ input:disabled {
   position: absolute;
   top: 33%;
   width: 76%;
+}
+
+.scanGuide.product {
+  height: 22%;
+  left: 8%;
+  top: 39%;
+  width: 84%;
+}
+
+.scanGuide.product::before,
+.scanGuide.product::after {
+  background: rgba(255, 209, 102, 0.9);
+  content: "";
+  height: 3px;
+  left: 8%;
+  position: absolute;
+  right: 8%;
+}
+
+.scanGuide.product::before {
+  top: 34%;
+}
+
+.scanGuide.product::after {
+  bottom: 34%;
+}
+
+.cameraTip {
+  background: #f7faf4;
+  border: 1px solid #dce4d8;
+  border-radius: 8px;
+  color: #536153;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+  padding: 10px 12px;
 }
 
 .formActions {

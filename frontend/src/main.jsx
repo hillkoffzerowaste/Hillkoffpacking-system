@@ -23,6 +23,7 @@ import {
   Users
 } from "lucide-react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
+import { BarcodeFormat, DecodeHintType } from "@zxing/library";
 import { parseImportFileAuto, recordsToCsv } from "./lib/importParser";
 import {
   createFirebaseOrder,
@@ -51,6 +52,87 @@ import "./styles.css";
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:4000/api";
 const LOCAL_STORE_KEY = "hillkoff-packing-local-db-v1";
 const DATA_MODE = import.meta.env.VITE_DATA_MODE || "api";
+
+const CAMERA_SCAN_FORMATS = {
+  product: [
+    BarcodeFormat.CODE_128,
+    BarcodeFormat.CODE_39,
+    BarcodeFormat.CODE_93,
+    BarcodeFormat.EAN_13,
+    BarcodeFormat.EAN_8,
+    BarcodeFormat.UPC_A,
+    BarcodeFormat.UPC_E,
+    BarcodeFormat.ITF
+  ],
+  mixed: [
+    BarcodeFormat.CODE_128,
+    BarcodeFormat.CODE_39,
+    BarcodeFormat.CODE_93,
+    BarcodeFormat.EAN_13,
+    BarcodeFormat.EAN_8,
+    BarcodeFormat.UPC_A,
+    BarcodeFormat.UPC_E,
+    BarcodeFormat.ITF,
+    BarcodeFormat.QR_CODE,
+    BarcodeFormat.DATA_MATRIX
+  ]
+};
+
+const CAMERA_SCAN_CONSTRAINTS = {
+  audio: false,
+  video: {
+    facingMode: { ideal: "environment" },
+    width: { ideal: 1920, min: 1280 },
+    height: { ideal: 1080, min: 720 },
+    frameRate: { ideal: 30, min: 15 },
+    focusMode: { ideal: "continuous" }
+  }
+};
+
+const CAMERA_SCAN_FALLBACK_CONSTRAINTS = {
+  audio: false,
+  video: {
+    facingMode: { ideal: "environment" },
+    width: { ideal: 1280 },
+    height: { ideal: 720 },
+    frameRate: { ideal: 24 }
+  }
+};
+
+function createScannerReader(profile = "mixed") {
+  const hints = new Map();
+  hints.set(DecodeHintType.POSSIBLE_FORMATS, CAMERA_SCAN_FORMATS[profile] || CAMERA_SCAN_FORMATS.mixed);
+  if (profile === "product") hints.set(DecodeHintType.TRY_HARDER, true);
+  return new BrowserMultiFormatReader(hints, {
+    delayBetweenScanAttempts: profile === "product" ? 70 : 100,
+    delayBetweenScanSuccess: 250,
+    tryPlayVideoTimeout: 7000
+  });
+}
+
+async function optimizeCameraTrack(controls) {
+  try {
+    const capabilities = controls?.streamVideoCapabilitiesGet?.(() => true) || {};
+    const constraints = { advanced: [] };
+
+    if (Array.isArray(capabilities.focusMode) && capabilities.focusMode.includes("continuous")) {
+      constraints.advanced.push({ focusMode: "continuous" });
+    }
+
+    if (capabilities.zoom) {
+      const min = Number(capabilities.zoom.min || 1);
+      const max = Number(capabilities.zoom.max || min);
+      const targetZoom = Math.min(max, Math.max(min, 1.6));
+      constraints.advanced.push({ zoom: targetZoom });
+    }
+
+    if (constraints.advanced.length) {
+      await controls.streamVideoConstraintsApply?.(constraints, () => true);
+    }
+  } catch (error) {
+    console.warn("Camera optimization skipped.", error);
+  }
+}
 
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator) || import.meta.env.DEV) return;
@@ -372,6 +454,10 @@ function resolveLocalScannedOrderItem(db, order, scannedSku) {
   if (directItem) return { item: directItem, mappedBarcode: false };
 
   const barcode = String(scannedSku || "").trim();
+  if (!barcode) {
+    return { error: "Scanned SKU is required." };
+  }
+
   const savedMapping = db.productBarcodes.find((mapping) => mapping.barcode === barcode);
   if (savedMapping) {
     const mappedItem = order.items.find((candidate) => sameSku(candidate.sku, savedMapping.sku));
@@ -862,26 +948,38 @@ function ScannerField({
   );
 }
 
-function CameraScanner({ title, onResult, onClose }) {
+function CameraScanner({ title, profile = "mixed", onResult, onClose }) {
   const videoRef = useRef(null);
   const [error, setError] = useState("");
+  const [torchAvailable, setTorchAvailable] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  const controlsRef = useRef(null);
 
   useEffect(() => {
     let controls;
     let active = true;
-    const reader = new BrowserMultiFormatReader();
+    const reader = createScannerReader(profile);
 
     async function start() {
       try {
-        controls = await reader.decodeFromVideoDevice(undefined, videoRef.current, (result) => {
+        const handleResult = (result) => {
           if (!active || !result) return;
           active = false;
           onResult(result.getText());
           controls?.stop();
           onClose();
-        });
+        };
+        try {
+          controls = await reader.decodeFromConstraints(CAMERA_SCAN_CONSTRAINTS, videoRef.current, handleResult);
+        } catch (constraintError) {
+          console.warn("High resolution camera constraints failed, retrying with fallback.", constraintError);
+          controls = await reader.decodeFromConstraints(CAMERA_SCAN_FALLBACK_CONSTRAINTS, videoRef.current, handleResult);
+        }
+        controlsRef.current = controls;
+        setTorchAvailable(typeof controls.switchTorch === "function");
+        await optimizeCameraTrack(controls);
       } catch (err) {
-        setError(err.message || "เปิดกล้องไม่ได้");
+        setError(err.message || "Cannot open camera.");
       }
     }
 
@@ -889,8 +987,20 @@ function CameraScanner({ title, onResult, onClose }) {
     return () => {
       active = false;
       controls?.stop();
+      controlsRef.current = null;
     };
-  }, [onClose, onResult]);
+  }, [onClose, onResult, profile]);
+
+  async function toggleTorch() {
+    if (!controlsRef.current?.switchTorch) return;
+    try {
+      const next = !torchOn;
+      await controlsRef.current.switchTorch(next);
+      setTorchOn(next);
+    } catch (err) {
+      setError(err.message || "Cannot toggle torch on this camera.");
+    }
+  }
 
   return (
     <div className="cameraOverlay">
@@ -898,14 +1008,26 @@ function CameraScanner({ title, onResult, onClose }) {
         <div className="cameraHeader">
           <div>
             <strong>{title}</strong>
-            <span>เล็งกล้องไปที่บาร์โค้ดหรือ QR Code</span>
+            <span>{profile === "product" ? "Center the product barcode in the yellow box. The camera will prefer close focus and mild zoom." : "Point the camera at a barcode or QR Code."}</span>
           </div>
-          <button type="button" className="secondary" onClick={onClose}>ปิด</button>
+          <div className="cameraActions">
+            {torchAvailable && (
+              <button type="button" className="secondary" onClick={toggleTorch}>
+                {torchOn ? "Light off" : "Light on"}
+              </button>
+            )}
+            <button type="button" className="secondary" onClick={onClose}>Close</button>
+          </div>
         </div>
         <div className="cameraFrame">
           <video ref={videoRef} muted playsInline />
-          <div className="scanGuide" />
+          <div className={`scanGuide ${profile === "product" ? "product" : ""}`} />
         </div>
+        {profile === "product" && (
+          <div className="cameraTip">
+            Hold about 10-20 cm away. If it is slow, turn on the light or fill the guide with the barcode.
+          </div>
+        )}
         {error && <Alert type="error">{error}</Alert>}
       </div>
     </div>
@@ -1225,7 +1347,7 @@ function NewOrderPage({ onRefresh, onGoPacking }) {
             <button type="button" className="scanModeButton" onClick={() => document.querySelectorAll(".formGrid input")[1]?.focus()}>สแกนใบปะหน้า</button>
             <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "ใช้กล้องสแกนใบปะหน้า", apply: (value) => setForm((current) => ({ ...current, tracking_id: value })) })}><Camera size={18} />ใช้กล้องสแกนใบปะหน้า</button>
             <button type="button" className="scanModeButton" onClick={() => document.querySelector(".manualItemRow input")?.focus()}>สแกน SKU</button>
-            <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "ใช้กล้องสแกน SKU", apply: (value) => updateItem(0, { sku: value }) })}><Camera size={18} />ใช้กล้องสแกน SKU</button>
+            <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "ใช้กล้องสแกน SKU", profile: "product", apply: (value) => updateItem(0, { sku: value }) })}><Camera size={18} />ใช้กล้องสแกน SKU</button>
           </div>
           <div className="formGrid">
             <label>ช่องทางออเดอร์
@@ -1272,7 +1394,7 @@ function NewOrderPage({ onRefresh, onGoPacking }) {
                 <label>จำนวน
                   <input type="number" min="1" value={item.quantity_required} onChange={(event) => updateItem(index, { quantity_required: event.target.value })} />
                 </label>
-                <button type="button" className="iconButton cameraIcon" onClick={() => setCameraTarget({ title: "ใช้กล้องสแกน SKU", apply: (value) => updateItem(index, { sku: value }) })} aria-label="ใช้กล้องสแกน SKU"><Camera size={18} /></button>
+                <button type="button" className="iconButton cameraIcon" onClick={() => setCameraTarget({ title: "ใช้กล้องสแกน SKU", profile: "product", apply: (value) => updateItem(index, { sku: value }) })} aria-label="ใช้กล้องสแกน SKU"><Camera size={18} /></button>
                 <button type="button" className="iconButton" onClick={() => removeItem(index)} aria-label="Remove SKU"><Trash2 size={18} /></button>
               </div>
             ))}
@@ -1292,6 +1414,7 @@ function NewOrderPage({ onRefresh, onGoPacking }) {
         {cameraTarget && (
           <CameraScanner
             title={cameraTarget.title}
+            profile={cameraTarget.profile}
             onResult={(value) => cameraTarget.apply(value)}
             onClose={() => setCameraTarget(null)}
           />
@@ -1340,26 +1463,33 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
     }
   }
 
-  async function scanSku(event) {
-    event.preventDefault();
-    if (!order || !sku) return;
+  async function submitSku(scannedValue = sku) {
+    const nextSku = String(scannedValue || "").trim();
+    if (!order || !nextSku) return;
     setError("");
     setMessage("");
     try {
       const data = await api(`/packing/orders/${order.id}/scan-item`, {
         method: "POST",
-        body: JSON.stringify({ scanned_sku: sku, quantity: scanQuantity, packer_id: null })
+        body: JSON.stringify({ scanned_sku: nextSku, quantity: scanQuantity, packer_id: null })
       });
       setOrder(data.order);
-      setMessage(`รหัสสินค้า ${data.sku} เพิ่ม ${data.quantity_added || scanQuantity}: ${data.quantity_scanned}/${data.quantity_required}${data.new_barcode_mapping ? " (จำคู่บาร์โค้ดแล้ว)" : ""}`);
+      setMessage(`Scanned ${data.sku}: +${data.quantity_added || scanQuantity} => ${data.quantity_scanned}/${data.quantity_required}${data.new_barcode_mapping ? " (barcode linked)" : ""}`);
       setSku("");
       setScanQuantity(1);
       await onRefresh();
+      setTimeout(() => skuRef.current?.focus(), 0);
     } catch (err) {
       setError(err.message);
       setSku("");
       playErrorSound();
+      setTimeout(() => skuRef.current?.focus(), 0);
     }
+  }
+
+  async function scanSku(event) {
+    event.preventDefault();
+    await submitSku();
   }
 
   async function confirmScanComplete() {
@@ -1401,7 +1531,7 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
             <button type="button" className="scanModeButton" onClick={() => lookupRef.current?.focus()}>1. สแกนใบปะหน้า</button>
             <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "ใช้กล้องสแกนใบปะหน้า", apply: setLookup })}><Camera size={18} />กล้องใบปะหน้า</button>
             <button type="button" className="scanModeButton" disabled={!order} onClick={() => skuRef.current?.focus()}>2. สแกน SKU</button>
-            <button type="button" className="scanModeButton camera" disabled={!order} onClick={() => setCameraTarget({ title: "ใช้กล้องสแกน SKU", apply: setSku })}><Camera size={18} />กล้อง SKU</button>
+            <button type="button" className="scanModeButton camera" disabled={!order} onClick={() => setCameraTarget({ title: "ใช้กล้องสแกน SKU", profile: "product", apply: submitSku })}><Camera size={18} />กล้อง SKU</button>
           </div>
 
           <form className="inlineForm" onSubmit={loadOrder}>
@@ -1427,7 +1557,7 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
                   <input type="number" min="1" step="1" value={scanQuantity} onChange={(event) => setScanQuantity(event.target.value)} />
                 </label>
                 <button className="primary"><Barcode size={18} />สแกน</button>
-                <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "ใช้กล้องสแกน SKU", apply: setSku })}><Camera size={18} />แสกนกล้อง SKU</button>
+                <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "ใช้กล้องสแกน SKU", profile: "product", apply: submitSku })}><Camera size={18} />แสกนกล้อง SKU</button>
               </form>
               <div className="itemList">
                 {order.items.map((item) => (
@@ -1460,6 +1590,7 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
           {cameraTarget && (
             <CameraScanner
               title={cameraTarget.title}
+              profile={cameraTarget.profile}
               onResult={(value) => cameraTarget.apply(value)}
               onClose={() => setCameraTarget(null)}
             />

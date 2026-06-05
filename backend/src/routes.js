@@ -58,6 +58,10 @@ function resolveScannedOrderItem(order, scannedSku) {
   if (directItem) return { item: directItem, mappedBarcode: false };
 
   const barcode = String(scannedSku || "").trim();
+  if (!barcode) {
+    return { error: "SCANNED_SKU_REQUIRED", message: "Scanned SKU is required." };
+  }
+
   const savedMapping = db.prepare("select * from product_barcodes where barcode = ?").get(barcode);
   if (savedMapping) {
     const mappedItem = order.items.find((candidate) => sameSku(candidate.sku, savedMapping.sku));

@@ -120,6 +120,10 @@ async function resolveFirebaseScannedOrderItem(order, scannedSku) {
   if (directItem) return { item: directItem, mappedBarcode: false };
 
   const barcode = String(scannedSku || "").trim();
+  if (!barcode) {
+    return { error: "Scanned SKU is required." };
+  }
+
   const cache = await getProductBarcodeCache();
   const savedMapping = cache.get(barcode);
   if (savedMapping) {

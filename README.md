@@ -28,6 +28,7 @@
 - [Database Schema](docs/database-schema.md)
 - [API Specification](docs/api-spec.md)
 - [User Flow](docs/user-flow.md)
+- [Maintenance Flow Map](docs/maintenance-flow.md)
 - [GitHub Issues Backlog](docs/github-issues.md)
 - [Vercel and Firebase Deploy Notes](docs/deploy-vercel-firebase.md)
 
