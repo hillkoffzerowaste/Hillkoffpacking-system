@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Hillkoff Packing</string>
+    <string name="title_activity_main">Hillkoff Packing</string>
+    <string name="package_name">com.hillkoff.packing</string>
+    <string name="custom_url_scheme">com.hillkoff.packing</string>
+</resources>

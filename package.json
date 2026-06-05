@@ -12,9 +12,19 @@
     "build": "npm run build -w frontend",
     "build:vercel": "npm run build -w frontend",
     "build:pages": "npm run build -w frontend",
+    "build:android-web": "npm run build -w frontend -- --base ./",
+    "android:sync": "npm run build:android-web && npx cap sync android",
+    "android:open": "npm run android:sync && npx cap open android",
+    "android:apk": "npm run android:sync && cd android && gradlew assembleDebug",
+    "android:release": "npm run android:sync && cd android && gradlew assembleRelease",
     "test": "npm run test -w backend"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.0",
     "concurrently": "^9.2.1"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.4.0",
+    "@capacitor/core": "^8.4.0"
   }
 }

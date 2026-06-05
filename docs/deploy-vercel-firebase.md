@@ -74,8 +74,6 @@ When ready to switch to Firebase:
 6. Deploy Firestore rules and indexes
 
 ```powershell
-Copy-Item .firebaserc.example .firebaserc
-# edit .firebaserc and replace your-firebase-project-id
 firebase deploy --only firestore
 ```
 
@@ -83,7 +81,7 @@ Firebase-backed UI actions are wired through `frontend/src/lib/firebaseAdapter.j
 
 ## Firebase Mode Checklist
 
-Use these Vercel environment variables:
+Use these Vercel environment variables for shared data across web and Android:
 
 ```text
 VITE_DATA_MODE=firebase
@@ -98,3 +96,36 @@ VITE_FIREBASE_MEASUREMENT_ID=...
 ```
 
 After deploy, open the app and click `Load Demo`. The app should create default packers, shipping providers, demo orders, and scan events in Firestore.
+
+## GitHub Pages Shared Data
+
+The Android app loads:
+
+```text
+https://hillkoffzerowaste.github.io/Hillkoffpacking-system/
+```
+
+For web and Android to show the same data, the GitHub Pages build must use Firebase mode.
+
+Add these repository settings in GitHub:
+
+Secrets:
+
+```text
+VITE_FIREBASE_API_KEY
+```
+
+Variables:
+
+```text
+VITE_FIREBASE_AUTH_DOMAIN
+VITE_FIREBASE_PROJECT_ID
+VITE_FIREBASE_STORAGE_BUCKET
+VITE_FIREBASE_MESSAGING_SENDER_ID
+VITE_FIREBASE_APP_ID
+VITE_FIREBASE_MEASUREMENT_ID
+```
+
+This repository is configured to use the Firebase project `hillkoff-packing-system` as the shared production database. Then run the `Deploy shared-data web app` workflow from the GitHub Actions tab. Both browser users and Android app users will load the same deployed app and write to the same Firestore database.
+
+Keep Firestore Authentication enabled with Anonymous sign-in, because the app signs users in anonymously before reading or writing operational data.

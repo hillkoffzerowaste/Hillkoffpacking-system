@@ -49,9 +49,10 @@ import {
 } from "./lib/firebaseAdapter";
 import "./styles.css";
 
+const IS_NATIVE_WEBVIEW = Boolean(window.Capacitor?.isNativePlatform?.() || window.Capacitor?.getPlatform?.() === "android");
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:4000/api";
 const LOCAL_STORE_KEY = "hillkoff-packing-local-db-v1";
-const DATA_MODE = import.meta.env.VITE_DATA_MODE || "api";
+const DATA_MODE = import.meta.env.VITE_DATA_MODE || (IS_NATIVE_WEBVIEW ? "local" : "api");
 
 const CAMERA_SCAN_FORMATS = {
   product: [
@@ -135,7 +136,7 @@ async function optimizeCameraTrack(controls) {
 }
 
 function registerServiceWorker() {
-  if (!("serviceWorker" in navigator) || import.meta.env.DEV) return;
+  if (IS_NATIVE_WEBVIEW || !("serviceWorker" in navigator) || import.meta.env.DEV) return;
   window.addEventListener("load", () => {
     navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch((error) => {
       console.warn("Service worker registration failed.", error);
@@ -2259,6 +2260,10 @@ function App() {
     refresh();
   }, []);
 
+  function reloadAppVersion() {
+    window.location.reload();
+  }
+
   const page = {
     dashboard: <DashboardPage summary={summary} readyOrders={readyOrders} onDemoReset={resetDemo} busy={busy} />,
     "new-order": <NewOrderPage onRefresh={refresh} onGoPacking={(trackingId) => {
@@ -2300,7 +2305,12 @@ function App() {
             <strong>{NAV_ITEMS.find((item) => item.id === activePage)?.label}</strong>
             <span>{new Date().toLocaleDateString("th-TH", { weekday: "long", year: "numeric", month: "short", day: "numeric" })}</span>
           </div>
-          <button className="secondary" onClick={refresh}><RefreshCw size={18} />รีเฟรช</button>
+          <div className="topbarActions">
+            {IS_NATIVE_WEBVIEW && (
+              <button className="secondary" onClick={reloadAppVersion}><RefreshCw size={18} />อัปเดตหน้าเว็บ</button>
+            )}
+            <button className="secondary" onClick={refresh}><RefreshCw size={18} />รีเฟรช</button>
+          </div>
         </header>
         {apiError && <Alert type="error">Backend: {apiError}</Alert>}
         {page}

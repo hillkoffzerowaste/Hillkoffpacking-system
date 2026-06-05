@@ -56,6 +56,36 @@ Frontend: http://localhost:5173
 Backend:  http://localhost:4000/api/health
 ```
 
+### Android App Build
+
+This repository includes a native Android shell generated with Capacitor. It packages the React app into a real APK while keeping the normal web deployment working.
+
+```powershell
+npm install
+npm run android:sync
+npm run android:apk
+npm run android:release
+```
+
+Build behavior:
+
+- App id: `com.hillkoff.packing`
+- App name: `Hillkoff Packing`
+- Android WebView loads `https://hillkoffzerowaste.github.io/Hillkoffpacking-system/` so deployed web updates can appear in the app without rebuilding the APK
+- The bundled web assets are still synced as a native fallback during the Capacitor build
+- Data is shared between web and Android only when both use the same Firebase or remote API backend; `local` mode stores data separately per browser/WebView
+- Camera permission is declared for barcode scanning
+- Cleartext HTTP traffic and app data backup are disabled for production safety
+
+Shared-data deployment:
+
+- Enable Firebase Firestore and Anonymous Authentication
+- Add Firebase web config to GitHub repository secrets/variables
+- Run the `Deploy shared-data web app` GitHub Actions workflow
+- Install the signed release APK; Android and browser users will use the same deployed Firebase-backed app
+
+To publish a release APK/AAB, open `android/` in Android Studio, configure a signing key, then build the release artifact from Android Studio or Gradle.
+
 GitHub Pages:
 
 ```text
