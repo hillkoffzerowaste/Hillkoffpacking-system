@@ -34,15 +34,18 @@ import {
   firebaseSummary,
   identifyFirebasePacker,
   importFirebaseFile,
+  importFirebaseProductBarcodes,
   listFirebaseSalesDispatchScans,
   listFirebaseBatches,
   listFirebaseOrders,
   listFirebasePackers,
+  listFirebaseProductBarcodes,
   listFirebaseProviders,
   listFirebaseReadyOrders,
   listFirebaseScanEvents,
   lookupFirebaseOrder,
   resetFirebaseDemo,
+  resolveFirebaseProductBarcodeConflict,
   recordFirebaseSalesDispatchScan,
   scanFirebaseSku,
   getFirebaseOrder
@@ -152,6 +155,7 @@ const NAV_ITEMS = [
   { id: "dispatch", label: "4. ส่งมอบขนส่ง", icon: Send },
   { id: "sales", label: "ฝ่ายขาย", icon: Archive },
   { id: "reports", label: "รายงาน", icon: FileClock },
+  { id: "sku", label: "ฐาน SKU", icon: Barcode },
   { id: "orders", label: "รายการออเดอร์", icon: ClipboardList },
   { id: "audit", label: "ประวัติสแกน", icon: FileClock },
   { id: "settings", label: "ตั้งค่า", icon: Settings }
@@ -165,6 +169,7 @@ const TITLE_LABELS = {
   "Final Sorting & Dispatch": "4. ส่งมอบขนส่ง",
   "Sales Dispatch Sheet": "ฝ่ายขาย",
   "Executive Reports": "รายงาน",
+  "SKU Database": "ฐาน SKU",
   "Order Control Center": "รายการออเดอร์",
   "Scan Audit": "ประวัติการสแกน",
   Settings: "ตั้งค่า"
@@ -178,6 +183,7 @@ const SUBTITLE_LABELS = {
   "Final Sorting & Dispatch": "สแกนกล่องที่ปิดแล้ว ระบบจะแสดงโซนขนส่งและเปลี่ยนสถานะเป็นส่งมอบแล้ว",
   "Sales Dispatch Sheet": "สแกนใบปะหน้าด้วยมือถือเพื่อเก็บรายการพร้อมจัดส่งประจำวัน แยกตามแพลตฟอร์ม และส่งออกเป็นไฟล์สำหรับ Excel",
   "Executive Reports": "สรุปรายวัน/รายเดือนสำหรับผู้บริหาร ทั้งภาพรวม ปัญหา ยอดส่งออก และยอดค้างส่ง",
+  "SKU Database": "เก็บฐานข้อมูลบาร์โค้ดสินค้าไว้ใช้ตรวจ SKU และนำเข้าไฟล์ SKU ในอนาคต",
   "Order Control Center": "ค้นหา ตรวจสถานะ และเปิดดูรายละเอียดออเดอร์ทั้งหมด",
   "Scan Audit": "ดูย้อนหลังว่าใครสแกนอะไร ผ่านหรือไม่ผ่าน ใช้ตรวจปัญหาได้",
   Settings: "จัดการพนักงานแพ็คและรายชื่อขนส่งที่ใช้ในระบบ"
@@ -241,6 +247,7 @@ function translateMessage(message) {
     "Order scan is not complete.": "ยังสแกนสินค้าไม่ครบ",
     "Scan quantity must be at least 1.": "จำนวนที่สแกนต้องอย่างน้อย 1",
     "Scan quantity exceeds remaining quantity.": "จำนวนที่ใส่มากกว่าจำนวนสินค้าที่ยังเหลือในออเดอร์",
+    "Barcode SKU conflict.": "บาร์โค้ดนี้เคยผูกกับ SKU อื่น กรุณายืนยัน SKU ที่ถูกต้อง",
     "Barcode is not linked to a SKU yet.": "บาร์โค้ดนี้ยังไม่ได้ผูกกับ SKU และออเดอร์นี้มีสินค้าหลายรายการ",
     "Barcode is linked to a SKU that is not in this order.": "บาร์โค้ดนี้ผูกกับ SKU ที่ไม่มีในออเดอร์นี้",
     "At least one valid SKU item is required.": "ต้องมีสินค้าอย่างน้อย 1 รายการ",
@@ -284,6 +291,9 @@ async function firebaseApi(path, options = {}) {
   if (path === "/health") return { ok: true, service: "hillkoff-packing-firebase" };
   if (path === "/reference/packers") return { packers: await listFirebasePackers() };
   if (path === "/reference/shipping-providers") return { shipping_providers: await listFirebaseProviders() };
+  if (path === "/product-barcodes") return { product_barcodes: await listFirebaseProductBarcodes() };
+  if (path === "/product-barcodes/import" && method === "POST") return importFirebaseProductBarcodes(body.records || []);
+  if (path === "/product-barcodes/resolve-conflict" && method === "POST") return { product_barcode: await resolveFirebaseProductBarcodeConflict(body) };
   if (path === "/dashboard/summary") return firebaseSummary();
   if (path === "/orders/ready") return { orders: await listFirebaseReadyOrders() };
   if (path === "/imports/batches") return { batches: await listFirebaseBatches() };
@@ -463,6 +473,39 @@ function rememberLocalProductBarcode(db, barcode, item) {
   return true;
 }
 
+function upsertLocalProductBarcode(db, payload) {
+  const normalizedBarcode = String(payload.barcode || "").trim();
+  const sku = String(payload.sku || "").trim();
+  if (!normalizedBarcode || !sku) throw new Error("Barcode and SKU are required.");
+  const now = nowIso();
+  const existing = db.productBarcodes.find((mapping) => mapping.barcode === normalizedBarcode);
+  const record = {
+    barcode: normalizedBarcode,
+    sku,
+    product_name: payload.product_name || existing?.product_name || null,
+    created_at: existing?.created_at || now,
+    updated_at: now,
+    last_seen_at: now,
+    scan_count: Number(existing?.scan_count || 0) + Number(payload.scan_count || 0)
+  };
+  if (existing) Object.assign(existing, record);
+  else db.productBarcodes.unshift(record);
+  return record;
+}
+
+function skuConflictError({ barcode, savedMapping, candidate }) {
+  const error = new Error("Barcode SKU conflict.");
+  error.code = "sku_conflict";
+  error.conflict = {
+    barcode,
+    existing_sku: savedMapping.sku,
+    existing_product_name: savedMapping.product_name || null,
+    suggested_sku: candidate.sku,
+    suggested_product_name: candidate.product_name || null
+  };
+  return error;
+}
+
 function resolveLocalScannedOrderItem(db, order, scannedSku) {
   const directItem = order.items.find((candidate) => sameSku(candidate.sku, scannedSku));
   if (directItem) return { item: directItem, mappedBarcode: false };
@@ -478,6 +521,11 @@ function resolveLocalScannedOrderItem(db, order, scannedSku) {
     if (mappedItem) {
       rememberLocalProductBarcode(db, barcode, mappedItem);
       return { item: mappedItem, mappedBarcode: true };
+    }
+    const remainingItems = order.items.filter((candidate) => candidate.quantity_scanned < candidate.quantity_required);
+    const candidates = remainingItems.length ? remainingItems : order.items;
+    if (candidates.length === 1) {
+      return { conflict: { barcode, savedMapping, candidate: candidates[0] } };
     }
     return { error: "Barcode is linked to a SKU that is not in this order." };
   }
@@ -577,6 +625,28 @@ async function localApi(path, options = {}) {
   if (path === "/health") return { ok: true, service: "hillkoff-packing-local" };
   if (path === "/reference/packers") return { packers: db.packers };
   if (path === "/reference/shipping-providers") return { shipping_providers: db.providers };
+  if (path === "/product-barcodes") {
+    return { product_barcodes: [...db.productBarcodes].sort((left, right) => String(right.updated_at || "").localeCompare(String(left.updated_at || ""))) };
+  }
+  if (path === "/product-barcodes/import" && method === "POST") {
+    let imported = 0;
+    let skipped = 0;
+    for (const record of body.records || []) {
+      try {
+        upsertLocalProductBarcode(db, record);
+        imported += 1;
+      } catch {
+        skipped += 1;
+      }
+    }
+    writeLocalDb(db);
+    return { imported, skipped, product_barcodes: db.productBarcodes };
+  }
+  if (path === "/product-barcodes/resolve-conflict" && method === "POST") {
+    const saved = upsertLocalProductBarcode(db, body);
+    writeLocalDb(db);
+    return { product_barcode: saved };
+  }
   if (path === "/demo/reset" && method === "POST") return resetLocalDemo();
 
   if (path === "/dashboard/summary") {
@@ -743,6 +813,11 @@ async function localApi(path, options = {}) {
       addLocalEvent(db, { order_id: order.id, packer_id: body.packer_id, scan_type: "item_verify", scanned_value: scannedSku, result: "error", message: resolved.error });
       writeLocalDb(db);
       throw new Error(resolved.error);
+    }
+    if (resolved.conflict) {
+      addLocalEvent(db, { order_id: order.id, packer_id: body.packer_id, scan_type: "item_verify", scanned_value: scannedSku, result: "error", message: "Barcode SKU conflict." });
+      writeLocalDb(db);
+      throw skuConflictError(resolved.conflict);
     }
     const item = resolved.item;
     if (item.quantity_scanned >= item.quantity_required) {
@@ -1487,6 +1562,7 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
   const [order, setOrder] = useState(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [skuConflict, setSkuConflict] = useState(null);
   const [cameraTarget, setCameraTarget] = useState(null);
   const lookupRef = useRef(null);
   const skuRef = useRef(null);
@@ -1503,6 +1579,7 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
     event.preventDefault();
     setError("");
     setMessage("");
+    setSkuConflict(null);
     try {
       const data = await api("/packing/orders/lookup", {
         method: "POST",
@@ -1524,6 +1601,7 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
     if (!order || !nextSku) return;
     setError("");
     setMessage("");
+    setSkuConflict(null);
     try {
       const data = await api(`/packing/orders/${order.id}/scan-item`, {
         method: "POST",
@@ -1536,6 +1614,13 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
       await onRefresh();
       setTimeout(() => skuRef.current?.focus(), 0);
     } catch (err) {
+      if (err.code === "sku_conflict" && err.conflict) {
+        setSkuConflict({ ...err.conflict, scanned_value: nextSku });
+        setError("Barcode SKU conflict.");
+        playErrorSound();
+        setTimeout(() => skuRef.current?.focus(), 0);
+        return;
+      }
       setError(err.message);
       setSku("");
       playErrorSound();
@@ -1546,6 +1631,35 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
   async function scanSku(event) {
     event.preventDefault();
     await submitSku();
+  }
+
+  async function resolveSkuConflict(useSuggested) {
+    if (!skuConflict) return;
+    setError("");
+    setMessage("");
+    try {
+      if (!useSuggested) {
+        setMessage(`ยืนยันให้บาร์โค้ด ${skuConflict.barcode} ใช้ SKU เดิม: ${skuConflict.existing_sku}`);
+        setSkuConflict(null);
+        setSku("");
+        setTimeout(() => skuRef.current?.focus(), 0);
+        return;
+      }
+      await api("/product-barcodes/resolve-conflict", {
+        method: "POST",
+        body: JSON.stringify({
+          barcode: skuConflict.barcode,
+          sku: skuConflict.suggested_sku,
+          product_name: skuConflict.suggested_product_name
+        })
+      });
+      const value = skuConflict.scanned_value || skuConflict.barcode;
+      setSkuConflict(null);
+      await submitSku(value);
+    } catch (err) {
+      setError(err.message);
+      playErrorSound();
+    }
   }
 
   async function confirmScanComplete() {
@@ -1643,6 +1757,18 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
 
           {message && <Alert>{message}</Alert>}
           {error && <Alert type="error">{error}</Alert>}
+          {skuConflict && (
+            <div className="skuConflictBox">
+              <div>
+                <strong>ตรวจพบข้อมูล SKU ไม่ตรงกัน</strong>
+                <span>บาร์โค้ด {skuConflict.barcode} เคยบันทึกเป็น {skuConflict.existing_sku} แต่ในออเดอร์นี้ระบบพบ {skuConflict.suggested_sku}</span>
+              </div>
+              <div className="toolbarActions">
+                <button type="button" className="secondary" onClick={() => resolveSkuConflict(false)}>ใช้ SKU เดิม</button>
+                <button type="button" className="primary" onClick={() => resolveSkuConflict(true)}>เปลี่ยนเป็น SKU นี้</button>
+              </div>
+            </div>
+          )}
           {cameraTarget && (
             <CameraScanner
               title={cameraTarget.title}
@@ -2249,6 +2375,106 @@ function ExecutiveReportsPage() {
   );
 }
 
+function readLooseField(row, names) {
+  const normalize = (text) => String(text || "").toLowerCase().replace(/[^a-z0-9ก-๙]+/g, "");
+  const entries = Object.entries(row || {});
+  for (const name of names) {
+    const wanted = normalize(name);
+    const found = entries.find(([key, value]) => {
+      if (value === undefined || value === null || String(value).trim() === "") return false;
+      const candidate = normalize(key);
+      return candidate === wanted || candidate.includes(wanted) || wanted.includes(candidate);
+    });
+    if (found) return String(found[1]).trim();
+  }
+  return "";
+}
+
+function mapSkuImportRows(rows) {
+  return (rows || []).map((row) => ({
+    barcode: readLooseField(row, ["barcode", "bar code", "product barcode", "บาร์โค้ด", "รหัสบาร์โค้ด"]),
+    sku: readLooseField(row, ["sku", "seller sku", "product sku", "รหัสสินค้า", "SKU"]),
+    product_name: readLooseField(row, ["product_name", "product name", "name", "ชื่อสินค้า"])
+  })).filter((row) => row.barcode && row.sku);
+}
+
+function SkuDatabasePage() {
+  const [items, setItems] = useState([]);
+  const [file, setFile] = useState(null);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function loadItems() {
+    const data = await api("/product-barcodes");
+    setItems(data.product_barcodes || []);
+  }
+
+  useEffect(() => {
+    loadItems().catch((err) => setError(err.message));
+  }, []);
+
+  async function importSkuFile(event) {
+    event.preventDefault();
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const parsed = await parseImportFileAuto(file);
+      const records = mapSkuImportRows(parsed.rows);
+      if (!records.length) throw new Error("ไม่พบคอลัมน์ barcode และ SKU ในไฟล์");
+      const data = await api("/product-barcodes/import", {
+        method: "POST",
+        body: JSON.stringify({ records })
+      });
+      setItems(data.product_barcodes || []);
+      setMessage(`นำเข้า SKU แล้ว ${data.imported || 0} รายการ${data.skipped ? ` / ข้าม ${data.skipped} รายการ` : ""}`);
+      setFile(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="pageStack">
+      <PageTitle
+        icon={Barcode}
+        title="SKU Database"
+        subtitle="เก็บฐานข้อมูลบาร์โค้ดสินค้าไว้ใช้ตรวจ SKU และนำเข้าไฟล์ SKU ในอนาคต"
+        action={<button className="secondary" onClick={loadItems}><RefreshCw size={18} />รีเฟรช</button>}
+      />
+      <section className="panel">
+        <div className="panelHeader"><Upload size={20} /><h3>นำเข้าไฟล์ SKU</h3></div>
+        <form className="inlineForm" onSubmit={importSkuFile}>
+          <label>ไฟล์ SKU
+            <input type="file" accept=".csv,.xlsx,.xps,.oxps,.txt" onChange={(event) => setFile(event.target.files?.[0] || null)} />
+          </label>
+          <button className="primary" disabled={busy || !file}><Upload size={18} />นำเข้า SKU</button>
+        </form>
+        {message && <Alert>{message}</Alert>}
+        {error && <Alert type="error">{error}</Alert>}
+      </section>
+      <section className="panel">
+        <div className="panelHeader"><Barcode size={20} /><h3>ฐานข้อมูลบาร์โค้ด / SKU</h3></div>
+        <DataTable
+          columns={["บาร์โค้ด", "SKU", "สินค้า", "สแกน", "อัพเดท"]}
+          rows={items.map((item) => [
+            item.barcode,
+            item.sku,
+            item.product_name || "-",
+            item.scan_count || 0,
+            formatDate(item.updated_at)
+          ])}
+          empty="ยังไม่มีข้อมูล SKU"
+        />
+      </section>
+    </div>
+  );
+}
+
 function OrdersPage({ onRefresh }) {
   const [orders, setOrders] = useState([]);
   const [filters, setFilters] = useState({ q: "", status: "", channel: "", date: "", month: "" });
@@ -2588,6 +2814,7 @@ function App() {
     dispatch: <DispatchPage onRefresh={refresh} />,
     sales: <SalesDispatchPage />,
     reports: <ExecutiveReportsPage />,
+    sku: <SkuDatabasePage />,
     orders: <OrdersPage onRefresh={refresh} />,
     audit: <AuditPage />,
     settings: <SettingsPage onRefresh={refresh} />

@@ -134,6 +134,42 @@ async function rememberFirebaseProductBarcode(barcode, item) {
   return true;
 }
 
+async function upsertFirebaseProductBarcode(payload) {
+  await ensureFirebaseReady();
+  const normalizedBarcode = String(payload.barcode || "").trim();
+  const sku = String(payload.sku || "").trim();
+  if (!normalizedBarcode || !sku) throw new Error("Barcode and SKU are required.");
+  const cache = await getProductBarcodeCache();
+  const existing = cache.get(normalizedBarcode);
+  const now = nowIso();
+  const record = {
+    barcode: normalizedBarcode,
+    sku,
+    product_name: payload.product_name || existing?.product_name || null,
+    created_at: existing?.created_at || now,
+    updated_at: now,
+    last_seen_at: now,
+    scan_count: Number(existing?.scan_count || 0) + Number(payload.scan_count || 0)
+  };
+  const db = requireFirestore();
+  await setDoc(doc(db, "product_barcodes", productBarcodeDocId(normalizedBarcode)), record, { merge: true });
+  cache.set(normalizedBarcode, record);
+  return record;
+}
+
+function skuConflictError({ barcode, savedMapping, candidate }) {
+  const error = new Error("Barcode SKU conflict.");
+  error.code = "sku_conflict";
+  error.conflict = {
+    barcode,
+    existing_sku: savedMapping.sku,
+    existing_product_name: savedMapping.product_name || null,
+    suggested_sku: candidate.sku,
+    suggested_product_name: candidate.product_name || null
+  };
+  return error;
+}
+
 async function resolveFirebaseScannedOrderItem(order, scannedSku) {
   const directItem = order.items.find((candidate) => sameSku(candidate.sku, scannedSku));
   if (directItem) return { item: directItem, mappedBarcode: false };
@@ -150,6 +186,11 @@ async function resolveFirebaseScannedOrderItem(order, scannedSku) {
     if (mappedItem) {
       await rememberFirebaseProductBarcode(barcode, mappedItem);
       return { item: mappedItem, mappedBarcode: true };
+    }
+    const remainingItems = order.items.filter((candidate) => candidate.quantity_scanned < candidate.quantity_required);
+    const candidates = remainingItems.length ? remainingItems : order.items;
+    if (candidates.length === 1) {
+      return { conflict: { barcode, savedMapping, candidate: candidates[0] } };
     }
     return { error: "Barcode is linked to a SKU that is not in this order." };
   }
@@ -190,6 +231,33 @@ export async function listFirebaseProviders() {
 export async function listFirebasePackers() {
   await ensureFirebaseReady();
   return all("packers");
+}
+
+export async function listFirebaseProductBarcodes() {
+  await ensureFirebaseReady();
+  const mappings = await all("product_barcodes");
+  return mappings.sort((left, right) => String(right.updated_at || "").localeCompare(String(left.updated_at || "")));
+}
+
+export async function importFirebaseProductBarcodes(records = []) {
+  await ensureFirebaseReady();
+  let imported = 0;
+  let skipped = 0;
+  const items = [];
+  for (const record of records) {
+    try {
+      const saved = await upsertFirebaseProductBarcode(record);
+      items.push(saved);
+      imported += 1;
+    } catch {
+      skipped += 1;
+    }
+  }
+  return { imported, skipped, product_barcodes: await listFirebaseProductBarcodes(), imported_items: items };
+}
+
+export async function resolveFirebaseProductBarcodeConflict(payload) {
+  return upsertFirebaseProductBarcode(payload);
 }
 
 export async function createFirebasePacker(payload) {
@@ -359,6 +427,10 @@ export async function scanFirebaseSku(orderId, scannedSku, packerId, quantity = 
   }
 
   const resolved = await resolveFirebaseScannedOrderItem(order, scannedSku);
+  if (resolved.conflict) {
+    await addFirebaseScanEvent({ order_id: order.id, packer_id: packerId || null, scan_type: "item_verify", scanned_value: scannedSku, result: "error", message: "Barcode SKU conflict." });
+    throw skuConflictError(resolved.conflict);
+  }
   if (resolved.error) {
     await addFirebaseScanEvent({ order_id: order.id, packer_id: packerId || null, scan_type: "item_verify", scanned_value: scannedSku, result: "error", message: resolved.error });
     throw new Error(resolved.error);
