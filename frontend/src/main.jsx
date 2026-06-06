@@ -8,6 +8,7 @@ import {
   Camera,
   CheckCircle2,
   ClipboardList,
+  Copy,
   FileClock,
   LayoutDashboard,
   PackageCheck,
@@ -2279,6 +2280,57 @@ function buildReportRows({ orders, events, salesScans, scopeLabel }) {
   return [...summaryRows, ...statusRows, ...channelRows, ...providerRows, ...problemRows, ...orderRows];
 }
 
+function buildReportCopyText({ orders, events, salesScans, scopeLabel, scope }) {
+  const shippedOrders = orders.filter((order) => order.status === "Shipped / Handed Over");
+  const packedOrders = orders.filter((order) => ["Packed", "Verified", "Shipped / Handed Over"].includes(order.status));
+  const pendingOrders = orders.filter((order) => ["Ready to Pack", "Packing In Progress", "Scan Completed", "Packed", "Verified"].includes(order.status));
+  const problemEvents = events.filter((event) => event.result === "error");
+  const byStatus = countBy(orders, (order) => statusLabel(order.status));
+  const byProvider = countBy(orders, (order) => order.shipping_provider || "-");
+  const byChannel = countBy(orders, (order) => channelLabel(order.channel));
+  const lines = [
+    `รายงาน${scope === "daily" ? "ประจำวัน" : "ประจำเดือน"} ${scopeLabel}`,
+    "",
+    `ออเดอร์ทั้งหมด: ${orders.length}`,
+    `แพ็คแล้ว: ${packedOrders.length}`,
+    `ส่งออกแล้ว: ${shippedOrders.length}`,
+    `ค้างส่ง: ${pendingOrders.length}`,
+    `ปัญหาการสแกน: ${problemEvents.length}`,
+    `ฝ่ายขายสแกนพร้อมส่ง: ${salesScans.length}`,
+    "",
+    "สถานะออเดอร์:",
+    ...(byStatus.length ? byStatus.map((item) => `- ${item.label}: ${item.count}`) : ["- ไม่มีข้อมูล"]),
+    "",
+    "ขนส่ง:",
+    ...(byProvider.length ? byProvider.map((item) => `- ${item.label}: ${item.count}`) : ["- ไม่มีข้อมูล"]),
+    "",
+    "ช่องทางขาย:",
+    ...(byChannel.length ? byChannel.map((item) => `- ${item.label}: ${item.count}`) : ["- ไม่มีข้อมูล"])
+  ];
+  if (problemEvents.length) {
+    lines.push("", "ปัญหาที่พบ:");
+    lines.push(...problemEvents.slice(0, 10).map((event) => `- ${SCAN_TYPE_LABELS[event.scan_type] || event.scan_type}: ${event.scanned_value || "-"} / ${translateMessage(event.message || "-")}`));
+    if (problemEvents.length > 10) lines.push(`- และอีก ${problemEvents.length - 10} รายการ`);
+  }
+  return lines.join("\n");
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
+}
+
 function ExecutiveReportsPage() {
   const [date, setDate] = useState(todayKey());
   const [month, setMonth] = useState(monthKey());
@@ -2287,6 +2339,7 @@ function ExecutiveReportsPage() {
   const [events, setEvents] = useState([]);
   const [salesScans, setSalesScans] = useState([]);
   const [error, setError] = useState("");
+  const [copyMessage, setCopyMessage] = useState("");
 
   const scopeLabel = scope === "daily" ? date : month;
 
@@ -2346,6 +2399,18 @@ function ExecutiveReportsPage() {
     exportRecordsAsExcel(reportRows, `executive-report-${scopeLabel}.xls`);
   }
 
+  async function copyReport() {
+    if (!reportRows.length) return;
+    setError("");
+    setCopyMessage("");
+    try {
+      await copyTextToClipboard(buildReportCopyText({ orders, events, salesScans, scopeLabel, scope }));
+      setCopyMessage("คัดลอกรายงานแล้ว พร้อมนำไปวางในช่องทางอื่น");
+    } catch (err) {
+      setError(err.message || "คัดลอกรายงานไม่สำเร็จ");
+    }
+  }
+
   return (
     <div className="pageStack">
       <PageTitle
@@ -2371,6 +2436,7 @@ function ExecutiveReportsPage() {
             </label>
           )}
           <div className="toolbarActions">
+            <button className="secondary" disabled={!reportRows.length} onClick={copyReport}><Copy size={18} />คัดลอก</button>
             <button className="secondary" disabled={!reportRows.length} onClick={exportCsv}><FileClock size={18} />CSV</button>
             <button className="primary" disabled={!reportRows.length} onClick={exportExcel}><Archive size={18} />Excel</button>
           </div>
@@ -2387,6 +2453,7 @@ function ExecutiveReportsPage() {
       </div>
 
       {error && <Alert type="error">{error}</Alert>}
+      {copyMessage && <Alert>{copyMessage}</Alert>}
 
       <div className="salesInsightsGrid">
         <section className="panel">
