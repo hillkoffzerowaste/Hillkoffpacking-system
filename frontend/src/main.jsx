@@ -581,6 +581,7 @@ function resetLocalDemo() {
     file_name: "local-demo",
     total_rows: rows.length,
     created_count: rows.length,
+    updated_count: 0,
     ignored_count: 0,
     overwritten_count: 0,
     error_count: 0,
@@ -1407,6 +1408,7 @@ function ImportPage({ onRefresh }) {
             <div className="resultGrid">
               <Metric label="จำนวนแถว" value={result.total_rows} />
               <Metric label="สร้างใหม่" value={result.created_count} tone="ok" />
+              <Metric label="อัปเดตข้อมูลเดิม" value={result.updated_count || 0} tone="ok" />
               <Metric label="ข้ามซ้ำ" value={result.ignored_count} />
               <Metric label="เขียนทับ" value={result.overwritten_count} tone="warn" />
               <Metric label="ผิดพลาด" value={result.error_count} tone="danger" />
@@ -1417,12 +1419,13 @@ function ImportPage({ onRefresh }) {
         <section className="panel">
           <div className="panelHeader"><FileClock size={20} /><h3>ประวัติการนำเข้า</h3></div>
           <DataTable
-            columns={["ไฟล์", "ช่องทาง", "แถว", "สร้างใหม่", "ข้ามซ้ำ", "เขียนทับ", "สถานะ"]}
+            columns={["ไฟล์", "ช่องทาง", "แถว", "สร้างใหม่", "อัปเดตเดิม", "ข้ามซ้ำ", "เขียนทับ", "สถานะ"]}
             rows={batches.map((batch) => [
               batch.file_name,
               channelLabel(batch.channel),
               batch.total_rows,
               batch.created_count,
+              batch.updated_count || 0,
               batch.ignored_count,
               batch.overwritten_count,
               statusLabel(batch.status)

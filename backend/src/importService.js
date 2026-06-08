@@ -50,10 +50,12 @@ function upsertItems(orderId, mapped) {
 
 function reconcileImportedItems(orderId, mapped) {
   const now = nowIso();
+  let changed = false;
   for (const item of mapped.items || [mapped]) {
     const existing = db.prepare("select * from order_items where order_id = ? and sku = ?").get(orderId, item.sku);
     if (!existing) {
       upsertItem(orderId, { ...mapped, ...item });
+      changed = true;
       continue;
     }
 
@@ -67,8 +69,10 @@ function reconcileImportedItems(orderId, mapped) {
             updated_at = @now
         where id = @id
       `).run({ id: existing.id, productName: item.productName || null, quantityRequired: nextRequired, now });
+      changed = true;
     }
   }
+  return changed;
 }
 
 function aggregateMappedOrders(mappedRows) {
@@ -182,6 +186,7 @@ export function importRows({ rows, channel, deduplicationAction, fileName }) {
     status: "completed",
     total_rows: rows.length,
     created_count: 0,
+    updated_count: 0,
     ignored_count: 0,
     overwritten_count: 0,
     error_count: 0,
@@ -224,7 +229,8 @@ export function importRows({ rows, channel, deduplicationAction, fileName }) {
           return;
         }
 
-        reconcileImportedItems(duplicate.id, mapped);
+        const reconciledItems = reconcileImportedItems(duplicate.id, mapped);
+        const fillsShippingOption = !duplicate.shipping_option && !!mapped.shippingOption;
         db.prepare(`
           update orders
           set shipping_option = case
@@ -236,6 +242,7 @@ export function importRows({ rows, channel, deduplicationAction, fileName }) {
           where id = @id
         `)
           .run({ id: duplicate.id, shippingOption: mapped.shippingOption || null, now: nowIso() });
+        if (reconciledItems || fillsShippingOption) stats.updated_count += 1;
         stats.ignored_count += 1;
       } catch (error) {
         stats.error_count += 1;
@@ -246,6 +253,7 @@ export function importRows({ rows, channel, deduplicationAction, fileName }) {
     db.prepare(`
       update import_batches
       set created_count = @created,
+          updated_count = @updated,
           ignored_count = @ignored,
           overwritten_count = @overwritten,
           error_count = @errors,
@@ -255,6 +263,7 @@ export function importRows({ rows, channel, deduplicationAction, fileName }) {
     `).run({
       batchId,
       created: stats.created_count,
+      updated: stats.updated_count,
       ignored: stats.ignored_count,
       overwritten: stats.overwritten_count,
       errors: stats.error_count,

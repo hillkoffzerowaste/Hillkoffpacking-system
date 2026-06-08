@@ -38,6 +38,7 @@ export function migrate() {
       file_name text,
       total_rows integer not null default 0,
       created_count integer not null default 0,
+      updated_count integer not null default 0,
       ignored_count integer not null default 0,
       overwritten_count integer not null default 0,
       error_count integer not null default 0,
@@ -122,6 +123,11 @@ export function migrate() {
   const orderColumns = db.prepare("pragma table_info(orders)").all().map((column) => column.name);
   if (!orderColumns.includes("shipping_option")) {
     db.prepare("alter table orders add column shipping_option text").run();
+  }
+
+  const batchColumns = db.prepare("pragma table_info(import_batches)").all().map((column) => column.name);
+  if (!batchColumns.includes("updated_count")) {
+    db.prepare("alter table import_batches add column updated_count integer not null default 0").run();
   }
 }
 

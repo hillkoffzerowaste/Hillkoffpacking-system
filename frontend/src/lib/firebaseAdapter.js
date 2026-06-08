@@ -834,7 +834,7 @@ export async function resetFirebaseDemo() {
     { channel: "lazada", order_key: `LAZ-${Date.now()}`, tracking_id: `LEX-${Date.now()}`, customer_name: "Demo Customer B", shipping_provider_code: "LEX", items: [{ sku: "COF-BEAN-250G", product_name: "Coffee Beans 250g", quantity_required: 1 }] }
   ];
   for (const row of rows) await createFirebaseOrder(row);
-  const batch = { source: "firebase-demo", channel: "mixed", file_name: "firebase-demo", total_rows: rows.length, created_count: rows.length, ignored_count: 0, overwritten_count: 0, error_count: 0, status: "completed", created_at: nowIso(), completed_at: nowIso() };
+  const batch = { source: "firebase-demo", channel: "mixed", file_name: "firebase-demo", total_rows: rows.length, created_count: rows.length, updated_count: 0, ignored_count: 0, overwritten_count: 0, error_count: 0, status: "completed", created_at: nowIso(), completed_at: nowIso() };
   await addDoc(collection(db, "import_batches"), batch);
   return { ok: true, batches: [batch], demo_scans: ["EMP001", rows[0].tracking_id, "COF-DRIP-001", "COF-DRIP-001"] };
 }
@@ -852,6 +852,7 @@ export async function importFirebaseFile({ file, channel, deduplicationAction })
     detected_channel: parsed.channel,
     total_rows: rows.length,
     created_count: 0,
+    updated_count: 0,
     ignored_count: 0,
     overwritten_count: 0,
     error_count: 0,
@@ -877,12 +878,14 @@ export async function importFirebaseFile({ file, channel, deduplicationAction })
       const existing = await lookupOnly(mapped.tracking_id) || await lookupOnly(mapped.order_key);
       if (existing && deduplicationAction !== "overwrite") {
         const reconciledItems = reconcileImportedOrderItems(existing, mapped);
-        if (reconciledItems || (!existing.shipping_option && mapped.shipping_option)) {
+        const fillsShippingOption = !existing.shipping_option && !!mapped.shipping_option;
+        if (reconciledItems || fillsShippingOption) {
           await updateFirebaseOrder(existing.id, {
             ...(reconciledItems ? { items: reconciledItems } : {}),
             shipping_option: existing.shipping_option || mapped.shipping_option || null,
             deduplication_action: "ignored"
           });
+          stats.updated_count += 1;
         }
         stats.ignored_count += 1;
         continue;

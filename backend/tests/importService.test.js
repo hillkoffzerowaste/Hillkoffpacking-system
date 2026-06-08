@@ -141,6 +141,7 @@ test("ignore mode keeps one duplicate order but fills missing SKU rows", () => {
   });
 
   assert.equal(stats.created_count, 0);
+  assert.equal(stats.updated_count, 1);
   assert.equal(stats.ignored_count, 1);
   assert.equal(db.prepare("select count(*) as count from orders").get().count, 1);
   assert.equal(db.prepare("select count(*) as count from order_items").get().count, 3);
@@ -172,6 +173,7 @@ test("ignore mode fills missing shipping option on existing duplicate orders", (
   });
 
   assert.equal(stats.created_count, 0);
+  assert.equal(stats.updated_count, 1);
   assert.equal(stats.ignored_count, 1);
   const order = db.prepare("select shipping_option from orders where order_key = ?").get("SHP-2501");
   assert.equal(order.shipping_option, "Standard Delivery Bulky");
