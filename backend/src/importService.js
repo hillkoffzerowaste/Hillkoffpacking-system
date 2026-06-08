@@ -48,6 +48,29 @@ function upsertItems(orderId, mapped) {
   }
 }
 
+function reconcileImportedItems(orderId, mapped) {
+  const now = nowIso();
+  for (const item of mapped.items || [mapped]) {
+    const existing = db.prepare("select * from order_items where order_id = ? and sku = ?").get(orderId, item.sku);
+    if (!existing) {
+      upsertItem(orderId, { ...mapped, ...item });
+      continue;
+    }
+
+    const nextRequired = Math.max(Number(existing.quantity_required || 0), Number(item.quantityRequired || 1));
+    if (nextRequired !== Number(existing.quantity_required || 0) || (item.productName && item.productName !== existing.product_name)) {
+      db.prepare(`
+        update order_items
+        set product_name = coalesce(@productName, product_name),
+            quantity_required = @quantityRequired,
+            status = case when quantity_scanned >= @quantityRequired then 'verified' else status end,
+            updated_at = @now
+        where id = @id
+      `).run({ id: existing.id, productName: item.productName || null, quantityRequired: nextRequired, now });
+    }
+  }
+}
+
 function aggregateMappedOrders(mappedRows) {
   const groups = new Map();
   for (const mapped of mappedRows) {
@@ -197,6 +220,7 @@ export function importRows({ rows, channel, deduplicationAction, fileName }) {
           return;
         }
 
+        reconcileImportedItems(duplicate.id, mapped);
         db.prepare("update orders set deduplication_action = 'ignored', updated_at = ? where id = ?").run(nowIso(), duplicate.id);
         stats.ignored_count += 1;
       } catch (error) {

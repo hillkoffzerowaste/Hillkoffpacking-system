@@ -99,7 +99,7 @@ test("groups SKU rows by order even when later rows omit tracking", () => {
   ]);
 });
 
-test("ignores the whole imported order when it already exists from a previous file", () => {
+test("ignore mode keeps one duplicate order but fills missing SKU rows", () => {
   importRows({
     channel: "shopee",
     deduplicationAction: "ignore",
@@ -122,5 +122,45 @@ test("ignores the whole imported order when it already exists from a previous fi
   assert.equal(stats.created_count, 0);
   assert.equal(stats.ignored_count, 1);
   assert.equal(db.prepare("select count(*) as count from orders").get().count, 1);
-  assert.equal(db.prepare("select count(*) as count from order_items").get().count, 1);
+  assert.equal(db.prepare("select count(*) as count from order_items").get().count, 3);
+});
+
+test("ignore mode fills missing SKU rows without doubling existing quantities", () => {
+  importRows({
+    channel: "shopee",
+    deduplicationAction: "ignore",
+    fileName: "buggy-first.csv",
+    rows: [
+      { "Order ID": "SHP-3001", "Tracking Number": "SPX-TRACK-3001", "SKU Reference No.": "SKU-A", Quantity: "2" }
+    ]
+  });
+
+  const fullRows = [
+    { "Order ID": "SHP-3001", "Tracking Number": "SPX-TRACK-3001", "SKU Reference No.": "SKU-A", Quantity: "2" },
+    { "Order ID": "SHP-3001", "Tracking Number": "SPX-TRACK-3001", "SKU Reference No.": "SKU-B", Quantity: "1" },
+    { "Order ID": "SHP-3001", "Tracking Number": "SPX-TRACK-3001", "SKU Reference No.": "SKU-C", Quantity: "3" }
+  ];
+
+  const stats = importRows({
+    channel: "shopee",
+    deduplicationAction: "ignore",
+    fileName: "full-reimport.csv",
+    rows: fullRows
+  });
+  assert.equal(stats.created_count, 0);
+  assert.equal(stats.ignored_count, 1);
+
+  importRows({
+    channel: "shopee",
+    deduplicationAction: "ignore",
+    fileName: "full-reimport-again.csv",
+    rows: fullRows
+  });
+
+  const items = db.prepare("select sku, quantity_required from order_items order by sku").all();
+  assert.deepEqual(items, [
+    { sku: "SKU-A", quantity_required: 2 },
+    { sku: "SKU-B", quantity_required: 1 },
+    { sku: "SKU-C", quantity_required: 3 }
+  ]);
 });

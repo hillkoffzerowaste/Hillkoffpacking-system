@@ -152,6 +152,38 @@ function aggregateImportOrders(mappedRows) {
   return [...groups.values()];
 }
 
+function reconcileImportedOrderItems(order, mapped) {
+  let changed = false;
+  const items = [...(order.items || [])];
+  for (const item of mapped.items || []) {
+    const existing = items.find((candidate) => sameSku(candidate.sku, item.sku));
+    const required = Number(item.quantity_required || 1);
+    if (!existing) {
+      changed = true;
+      items.push({
+        id: uid(),
+        sku: item.sku,
+        product_name: item.product_name || null,
+        quantity_required: required,
+        quantity_scanned: 0,
+        status: "pending",
+        created_at: nowIso(),
+        updated_at: nowIso()
+      });
+      continue;
+    }
+
+    if (Number(existing.quantity_required || 0) < required || (item.product_name && item.product_name !== existing.product_name)) {
+      changed = true;
+      existing.product_name = item.product_name || existing.product_name || null;
+      existing.quantity_required = Math.max(Number(existing.quantity_required || 0), required);
+      existing.status = Number(existing.quantity_scanned || 0) >= existing.quantity_required ? "verified" : existing.status;
+      existing.updated_at = nowIso();
+    }
+  }
+  return changed ? items : null;
+}
+
 function sameSku(left, right) {
   return String(left || "").trim().toUpperCase() === String(right || "").trim().toUpperCase();
 }
@@ -843,6 +875,13 @@ export async function importFirebaseFile({ file, channel, deduplicationAction })
     try {
       const existing = await lookupOnly(mapped.tracking_id) || await lookupOnly(mapped.order_key);
       if (existing && deduplicationAction !== "overwrite") {
+        const reconciledItems = reconcileImportedOrderItems(existing, mapped);
+        if (reconciledItems) {
+          await updateFirebaseOrder(existing.id, {
+            items: reconciledItems,
+            deduplication_action: "ignored"
+          });
+        }
         stats.ignored_count += 1;
         continue;
       }
