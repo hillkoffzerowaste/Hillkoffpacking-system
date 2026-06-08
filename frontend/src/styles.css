@@ -833,7 +833,7 @@ input:disabled {
   border-radius: 8px;
   display: grid;
   gap: 10px;
-  grid-template-columns: 1fr 1fr 110px 150px;
+  grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr) minmax(140px, 1.1fr) 110px 150px;
   padding: 12px;
 }
 

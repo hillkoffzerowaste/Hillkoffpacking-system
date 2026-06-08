@@ -1766,6 +1766,7 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
               <div className="orderHero">
                 <div><span>ออเดอร์</span><strong>{order.order_key}</strong></div>
                 <div><span>เลขพัสดุ</span><strong>{order.tracking_id}</strong></div>
+                <div><span>ลูกค้า</span><strong>{order.customer_name || "-"}</strong></div>
                 <div><span>ความคืบหน้า</span><strong>{progress}%</strong></div>
                 <div><span>สถานะ</span><StatusBadge status={order.status} /></div>
               </div>

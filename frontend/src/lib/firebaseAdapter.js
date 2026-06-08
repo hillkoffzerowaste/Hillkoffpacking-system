@@ -2,12 +2,14 @@ import {
   addDoc,
   collection,
   doc,
+  endAt,
   getDoc,
   getDocs,
   limit,
   orderBy,
   query,
   setDoc,
+  startAt,
   updateDoc,
   where
 } from "firebase/firestore";
@@ -562,13 +564,7 @@ export async function createFirebaseOrder(payload) {
 
 export async function lookupFirebaseOrder(value, packerId) {
   await ensureFirebaseReady();
-  const orders = await listFirebaseOrders();
-  const term = String(value || "").trim().toLowerCase();
-  const order = orders.find((candidate) => {
-    return String(candidate.tracking_id || "").toLowerCase() === term
-      || String(candidate.order_key || "").toLowerCase() === term
-      || String(candidate.customer_name || "").toLowerCase().includes(term);
-  });
+  const order = await lookupOnly(value);
 
   if (!order) {
     await addFirebaseScanEvent({ packer_id: packerId || null, scan_type: "order_lookup", scanned_value: value, result: "error", message: "Order not found" });
@@ -984,6 +980,24 @@ async function lookupOnly(value) {
       const item = snapshot.docs[0];
       return decorateFirebaseOrder({ id: item.id, ...item.data() });
     }
+  }
+
+  const customerExact = await getDocs(query(collection(db, "orders"), where("customer_name", "==", rawTerm), limit(1)));
+  if (!customerExact.empty) {
+    const item = customerExact.docs[0];
+    return decorateFirebaseOrder({ id: item.id, ...item.data() });
+  }
+
+  const customerPrefix = await getDocs(query(
+    collection(db, "orders"),
+    orderBy("customer_name"),
+    startAt(rawTerm),
+    endAt(`${rawTerm}\uf8ff`),
+    limit(10)
+  )).catch(() => ({ docs: [] }));
+  if (!customerPrefix.empty) {
+    const item = customerPrefix.docs[0];
+    return decorateFirebaseOrder({ id: item.id, ...item.data() });
   }
 
   const orders = await listFirebaseOrders();
