@@ -543,6 +543,7 @@ export function mapImportRow(row, channel) {
       tracking_id: value(row, ["*หมายเลขติดตามพัสดุ", "หมายเลขติดตามพัสดุ", "Tracking Number", "tracking_id"]) || orderKey,
       customer_name: value(row, ["ชื่อผู้รับ", "ชื่อลูกค้า", "Customer Name"]),
       shipping_provider_code: providerCode(value(row, ["ขนส่ง", "Shipping Provider", "Logistics Channel"]), channel),
+      shipping_option: value(row, ["ตัวเลือกการจัดส่ง", "วิธีการจัดส่ง", "Shipping Option", "Delivery Option"]),
       items: [{
         sku: value(row, ["เลขอ้างอิง Parent SKU", "Parent SKU", "เลขอ้างอิง SKU", "เลขอ้างอิง SKU (SKU Reference No.)", "SKU Reference No.", "sku"]),
         product_name: value(row, ["ชื่อสินค้า", "Product Name"]),
@@ -561,6 +562,7 @@ export function mapImportRow(row, channel) {
       tracking_id: value(row, ["trackingCode", "Tracking Code", "tracking_id"]) || orderKey,
       customer_name: value(row, ["customerName", "Customer Name", "ชื่อลูกค้า"]),
       shipping_provider_code: providerCode(value(row, ["shippingProvider", "Shipment Provider", "ขนส่ง"]), channel),
+      shipping_option: value(row, ["deliveryType", "shipmentTypeName", "shippingProviderType", "Delivery Option", "Shipping Option"]),
       items: [{
         sku: value(row, ["sellerSku", "Seller SKU", "sku"]),
         product_name: value(row, ["itemName", "Product Name", "ชื่อสินค้า"]),
@@ -577,6 +579,7 @@ export function mapImportRow(row, channel) {
       tracking_id: value(row, ["Tracking ID", "tracking_id"]) || orderKey,
       customer_name: value(row, ["Recipient", "Recipient Name", "Buyer Username", "Customer Name", "ชื่อลูกค้า"]),
       shipping_provider_code: providerCode(value(row, ["Shipping Provider Name", "Shipping Provider", "Delivery Option", "ขนส่ง"]), channel),
+      shipping_option: value(row, ["Delivery Option", "Fulfillment Type", "Shipping Type"]),
       items: [{
         sku: value(row, ["Seller SKU", "sku"]),
         product_name: value(row, ["Product Name", "ชื่อสินค้า"]),
@@ -592,6 +595,7 @@ export function mapImportRow(row, channel) {
     tracking_id: value(row, ["Tracking", "tracking_id", "หมายเลขติดตามพัสดุ"]) || orderKey,
     customer_name: value(row, ["ชื่อลูกค้า", "Customer Name", "customer_name"]),
     shipping_provider_code: providerCode(value(row, ["ขนส่ง", "Shipping Provider"]), channel),
+    shipping_option: value(row, ["ตัวเลือกการจัดส่ง", "วิธีการจัดส่ง", "Delivery Option", "Shipping Option"]),
     items: [{
       sku: value(row, ["รหัสสินค้า", "SKU", "sku"]),
       product_name: value(row, ["ชื่อสินค้า", "Product Name"]),

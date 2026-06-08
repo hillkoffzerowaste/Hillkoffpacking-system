@@ -430,7 +430,8 @@ function findLocalOrders(db, lookup) {
     .filter((order) => {
       return order.tracking_id.toLowerCase() === term
         || order.order_key.toLowerCase() === term
-        || String(order.customer_name || "").toLowerCase().includes(term);
+        || String(order.customer_name || "").toLowerCase().includes(term)
+        || String(order.shipping_option || "").toLowerCase().includes(term);
     })
     .map((order) => decorateOrder(db, order));
 }
@@ -609,6 +610,7 @@ function createLocalOrder(db, payload) {
     tracking_id: trackingId,
     customer_name: payload.customer_name || null,
     shipping_provider_id: provider?.id || null,
+    shipping_option: payload.shipping_option || null,
     status: "Ready to Pack",
     packed_by: null,
     imported_at: createdAt,
@@ -734,7 +736,7 @@ async function localApi(path, options = {}) {
         .filter((order) => !status || order.status === status)
         .filter((order) => !channel || order.channel === channel)
         .filter((order) => orderMatchesPeriod(order, { date, month }))
-        .filter((order) => !q || order.tracking_id.toLowerCase().includes(q) || order.order_key.toLowerCase().includes(q) || String(order.customer_name || "").toLowerCase().includes(q))
+        .filter((order) => !q || order.tracking_id.toLowerCase().includes(q) || order.order_key.toLowerCase().includes(q) || String(order.customer_name || "").toLowerCase().includes(q) || String(order.shipping_option || "").toLowerCase().includes(q))
         .map((order) => decorateOrder(db, order))
     };
   }
@@ -799,6 +801,7 @@ async function localApi(path, options = {}) {
       channel: order.channel || "reservation",
       customer_name: order.customer_name || null,
       shipping_provider: order.shipping_provider || "ไม่ระบุขนส่ง",
+      shipping_option: order.shipping_option || null,
       status: order.status,
       scanned_value: body.tracking_or_order_id,
       scan_count: existing ? Number(existing.scan_count || 1) + 1 : 1,
@@ -921,7 +924,7 @@ async function localApi(path, options = {}) {
     const provider = decorateOrder(db, rawOrder).shipping_provider;
     addLocalEvent(db, { order_id: rawOrder.id, scan_type: "final_dispatch", scanned_value: body.tracking_or_order_id, result: duplicate ? "duplicate" : "success", message: duplicate ? "Already shipped / handed over" : provider });
     writeLocalDb(db);
-    return { order_id: rawOrder.id, status: rawOrder.status, shipping_provider: { display_name: provider }, shipped_at: rawOrder.shipped_at, duplicate };
+    return { order_id: rawOrder.id, status: rawOrder.status, shipping_provider: { display_name: provider }, shipping_option: rawOrder.shipping_option || null, shipped_at: rawOrder.shipped_at, duplicate };
   }
 
   if (path === "/packers" && method === "POST") {
@@ -1767,6 +1770,8 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
                 <div><span>ออเดอร์</span><strong>{order.order_key}</strong></div>
                 <div><span>เลขพัสดุ</span><strong>{order.tracking_id}</strong></div>
                 <div><span>ลูกค้า</span><strong>{order.customer_name || "-"}</strong></div>
+                <div><span>ขนส่ง</span><strong>{order.shipping_provider || "-"}</strong></div>
+                <div><span>ตัวเลือกจัดส่ง</span><strong>{order.shipping_option || "-"}</strong></div>
                 <div><span>ความคืบหน้า</span><strong>{progress}%</strong></div>
                 <div><span>สถานะ</span><StatusBadge status={order.status} /></div>
               </div>
@@ -1877,6 +1882,7 @@ function DispatchPage({ onRefresh }) {
         {
           value,
           provider: data.shipping_provider?.display_name || "-",
+          shipping_option: data.shipping_option || "-",
           status: data.status,
           shipped_at: data.shipped_at,
           duplicate: !!data.duplicate
@@ -1918,7 +1924,7 @@ function DispatchPage({ onRefresh }) {
           <div className="routeDisplay">
             <span>{result.duplicate ? "สแกนซ้ำ / ส่งมอบแล้ว" : "วางที่โซน"}</span>
             <strong>{result.shipping_provider.display_name}</strong>
-            <small>{result.status} · {formatDate(result.shipped_at)}</small>
+            <small>{result.shipping_option || "-"} · {result.status} · {formatDate(result.shipped_at)}</small>
           </div>
         )}
         {error && <Alert type="error">{error}</Alert>}
@@ -1926,7 +1932,7 @@ function DispatchPage({ onRefresh }) {
           {recentScans.map((scan, index) => (
             <div className="recentScanItem" key={`${scan.value}-${index}`}>
               <strong>{scan.value}</strong>
-              <span>{scan.duplicate ? "สแกนซ้ำ / " : ""}{scan.provider} / {formatDate(scan.shipped_at)}</span>
+              <span>{scan.duplicate ? "สแกนซ้ำ / " : ""}{scan.provider} / {scan.shipping_option || "-"} / {formatDate(scan.shipped_at)}</span>
             </div>
           ))}
           {!recentScans.length && <span className="emptyInline">พร้อมสแกนต่อเนื่อง ระบบจะบันทึกทันทีหลังยิงบาร์โค้ด</span>}
@@ -2050,6 +2056,7 @@ function SalesDispatchPage() {
     "เลขออเดอร์": scan.order_key,
     "ลูกค้า": scan.customer_name || "",
     "ขนส่ง": scan.shipping_provider || "",
+    "ตัวเลือกจัดส่ง": scan.shipping_option || "",
     "สถานะ": statusLabel(scan.status),
     "จำนวนครั้งที่สแกน": scan.scan_count || 1
   })), [scans]);
@@ -2062,6 +2069,7 @@ function SalesDispatchPage() {
     "เลขออเดอร์": scan.order_key,
     "ลูกค้า": scan.customer_name || "",
     "ขนส่ง": scan.shipping_provider || "",
+    "ตัวเลือกจัดส่ง": scan.shipping_option || "",
     "สถานะ": statusLabel(scan.status),
     "จำนวนครั้งที่สแกน": scan.scan_count || 1
   })), [monthScans]);
@@ -2222,7 +2230,7 @@ function SalesDispatchPage() {
           </div>
         </div>
         <DataTable
-          columns={["เวลา", "แพลตฟอร์ม", "เลขพัสดุ", "เลขออเดอร์", "ลูกค้า", "ขนส่ง", "สถานะ", "สแกนซ้ำ"]}
+          columns={["เวลา", "แพลตฟอร์ม", "เลขพัสดุ", "เลขออเดอร์", "ลูกค้า", "ขนส่ง", "ตัวเลือกจัดส่ง", "สถานะ", "สแกนซ้ำ"]}
           rows={scans.map((scan) => [
             formatDate(scan.scanned_at),
             channelLabel(scan.channel),
@@ -2230,6 +2238,7 @@ function SalesDispatchPage() {
             scan.order_key,
             scan.customer_name || "-",
             scan.shipping_provider || "-",
+            scan.shipping_option || "-",
             <StatusBadge status={scan.status} />,
             scan.scan_count || 1
           ])}
@@ -2266,6 +2275,7 @@ function buildReportRows({ orders, events, salesScans, scopeLabel }) {
   const statusRows = countBy(orders, (order) => statusLabel(order.status)).map((item) => ({ section: "orders_by_status", topic: item.label, value: item.count, detail: "" }));
   const channelRows = countBy(orders, (order) => channelLabel(order.channel)).map((item) => ({ section: "orders_by_channel", topic: item.label, value: item.count, detail: "" }));
   const providerRows = countBy(orders, (order) => order.shipping_provider || "-").map((item) => ({ section: "orders_by_provider", topic: item.label, value: item.count, detail: "" }));
+  const shippingOptionRows = countBy(orders, (order) => order.shipping_option || "-").map((item) => ({ section: "orders_by_shipping_option", topic: item.label, value: item.count, detail: "" }));
   const problemRows = problemEvents.slice(0, 50).map((event) => ({
     section: "problem",
     topic: SCAN_TYPE_LABELS[event.scan_type] || event.scan_type,
@@ -2276,9 +2286,9 @@ function buildReportRows({ orders, events, salesScans, scopeLabel }) {
     section: "order",
     topic: order.tracking_id,
     value: statusLabel(order.status),
-    detail: `${channelLabel(order.channel)} / ${order.shipping_provider || "-"} / ${order.customer_name || "-"}`
+    detail: `${channelLabel(order.channel)} / ${order.shipping_provider || "-"} / ${order.shipping_option || "-"} / ${order.customer_name || "-"}`
   }));
-  return [...summaryRows, ...statusRows, ...channelRows, ...providerRows, ...problemRows, ...orderRows];
+  return [...summaryRows, ...statusRows, ...channelRows, ...providerRows, ...shippingOptionRows, ...problemRows, ...orderRows];
 }
 
 function buildReportCopyText({ orders, events, salesScans, scopeLabel, scope }) {
@@ -2288,6 +2298,7 @@ function buildReportCopyText({ orders, events, salesScans, scopeLabel, scope }) 
   const problemEvents = events.filter((event) => event.result === "error");
   const byStatus = countBy(orders, (order) => statusLabel(order.status));
   const byProvider = countBy(orders, (order) => order.shipping_provider || "-");
+  const byShippingOption = countBy(orders, (order) => order.shipping_option || "-");
   const byChannel = countBy(orders, (order) => channelLabel(order.channel));
   const lines = [
     `รายงาน${scope === "daily" ? "ประจำวัน" : "ประจำเดือน"} ${scopeLabel}`,
@@ -2304,6 +2315,9 @@ function buildReportCopyText({ orders, events, salesScans, scopeLabel, scope }) 
     "",
     "ขนส่ง:",
     ...(byProvider.length ? byProvider.map((item) => `- ${item.label}: ${item.count}`) : ["- ไม่มีข้อมูล"]),
+    "",
+    "ตัวเลือกการจัดส่ง:",
+    ...(byShippingOption.length ? byShippingOption.map((item) => `- ${item.label}: ${item.count}`) : ["- ไม่มีข้อมูล"]),
     "",
     "ช่องทางขาย:",
     ...(byChannel.length ? byChannel.map((item) => `- ${item.label}: ${item.count}`) : ["- ไม่มีข้อมูล"])
@@ -2372,6 +2386,7 @@ function ExecutiveReportsPage() {
   const pendingOrders = orders.filter((order) => ["Ready to Pack", "Packing In Progress", "Scan Completed", "Packed", "Verified"].includes(order.status));
   const problemEvents = events.filter((event) => event.result === "error");
   const byProvider = countBy(orders, (order) => order.shipping_provider || "-");
+  const byShippingOption = countBy(orders, (order) => order.shipping_option || "-");
   const byStatus = countBy(orders, (order) => statusLabel(order.status));
   const reportRows = buildReportRows({ orders, events, salesScans, scopeLabel });
 
@@ -2462,6 +2477,14 @@ function ExecutiveReportsPage() {
           <DataTable
             columns={["ขนส่ง", "จำนวน"]}
             rows={byProvider.map((item) => [item.label, item.count])}
+            empty="ยังไม่มีข้อมูล"
+          />
+        </section>
+        <section className="panel">
+          <div className="panelHeader"><Send size={20} /><h3>ตัวเลือกจัดส่ง</h3></div>
+          <DataTable
+            columns={["ตัวเลือกจัดส่ง", "จำนวน"]}
+            rows={byShippingOption.map((item) => [item.label, item.count])}
             empty="ยังไม่มีข้อมูล"
           />
         </section>
@@ -2675,13 +2698,14 @@ function OrdersPage({ onRefresh }) {
       <div className="contentGrid ordersGrid">
         <section className="panel">
           <DataTable
-            columns={["เลขพัสดุ", "ออเดอร์", "ช่องทาง", "ลูกค้า", "ขนส่ง", "สถานะ", "อัปเดต"]}
+            columns={["เลขพัสดุ", "ออเดอร์", "ช่องทาง", "ลูกค้า", "ขนส่ง", "ตัวเลือกจัดส่ง", "สถานะ", "อัปเดต"]}
             rows={orders.map((order) => [
               <button className="linkButton" onClick={() => openOrder(order.id)}>{order.tracking_id}</button>,
               order.order_key,
               channelLabel(order.channel),
               order.customer_name || "-",
               order.shipping_provider || "-",
+              order.shipping_option || "-",
               <StatusBadge status={order.status} />,
               formatDate(order.updated_at)
             ])}
@@ -2702,6 +2726,7 @@ function OrdersPage({ onRefresh }) {
                 <div><dt>เลขพัสดุ</dt><dd>{selected.tracking_id}</dd></div>
                 <div><dt>ลูกค้า</dt><dd>{selected.customer_name || "-"}</dd></div>
                 <div><dt>ขนส่ง</dt><dd>{selected.shipping_provider || "-"}</dd></div>
+                <div><dt>ตัวเลือกจัดส่ง</dt><dd>{selected.shipping_option || "-"}</dd></div>
                 <div><dt>แพ็คโดย</dt><dd>{selected.packed_by_name || "-"}</dd></div>
               </dl>
               <div className="itemList tight">

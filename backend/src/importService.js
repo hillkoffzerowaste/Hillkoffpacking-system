@@ -92,6 +92,7 @@ function aggregateMappedOrders(mappedRows) {
 
     existing.customerName ||= mapped.customerName;
     existing.shippingProviderCode ||= mapped.shippingProviderCode;
+    existing.shippingOption ||= mapped.shippingOption;
     if (mapped.trackingId && mapped.trackingId !== mapped.orderKey) existing.trackingId = mapped.trackingId;
     const existingItem = existing.items.find((candidate) => candidate.sku === item.sku);
     if (existingItem) {
@@ -110,10 +111,10 @@ function createOrder(mapped, batchId, sourceFileName) {
   const id = nanoid();
   db.prepare(`
     insert into orders
-      (id, channel, order_key, order_item_id, tracking_id, customer_name, shipping_provider_id, status,
+      (id, channel, order_key, order_item_id, tracking_id, customer_name, shipping_provider_id, shipping_option, status,
        imported_at, ready_to_pack_at, source_file_name, import_batch_id, deduplication_action, created_at, updated_at)
     values
-      (@id, @channel, @orderKey, @orderItemId, @trackingId, @customerName, @shippingProviderId, 'Ready to Pack',
+      (@id, @channel, @orderKey, @orderItemId, @trackingId, @customerName, @shippingProviderId, @shippingOption, 'Ready to Pack',
        @now, @now, @sourceFileName, @batchId, 'created', @now, @now)
   `).run({
     id,
@@ -123,6 +124,7 @@ function createOrder(mapped, batchId, sourceFileName) {
     trackingId: mapped.trackingId,
     customerName: mapped.customerName || null,
     shippingProviderId: provider?.id || null,
+    shippingOption: mapped.shippingOption || null,
     sourceFileName,
     batchId,
     now
@@ -142,6 +144,7 @@ function overwriteOrder(existing, mapped, batchId, sourceFileName) {
         tracking_id = @trackingId,
         customer_name = @customerName,
         shipping_provider_id = @shippingProviderId,
+        shipping_option = @shippingOption,
         status = 'Ready to Pack',
         imported_at = @now,
         ready_to_pack_at = @now,
@@ -161,6 +164,7 @@ function overwriteOrder(existing, mapped, batchId, sourceFileName) {
     trackingId: mapped.trackingId,
     customerName: mapped.customerName || null,
     shippingProviderId: provider?.id || null,
+    shippingOption: mapped.shippingOption || null,
     sourceFileName,
     batchId,
     now
@@ -221,7 +225,17 @@ export function importRows({ rows, channel, deduplicationAction, fileName }) {
         }
 
         reconcileImportedItems(duplicate.id, mapped);
-        db.prepare("update orders set deduplication_action = 'ignored', updated_at = ? where id = ?").run(nowIso(), duplicate.id);
+        db.prepare(`
+          update orders
+          set shipping_option = case
+                when shipping_option is null or shipping_option = '' then @shippingOption
+                else shipping_option
+              end,
+              deduplication_action = 'ignored',
+              updated_at = @now
+          where id = @id
+        `)
+          .run({ id: duplicate.id, shippingOption: mapped.shippingOption || null, now: nowIso() });
         stats.ignored_count += 1;
       } catch (error) {
         stats.error_count += 1;

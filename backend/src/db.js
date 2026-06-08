@@ -54,6 +54,7 @@ export function migrate() {
       tracking_id text not null,
       customer_name text,
       shipping_provider_id text,
+      shipping_option text,
       status text not null,
       packed_by text,
       imported_at text not null,
@@ -117,6 +118,11 @@ export function migrate() {
       foreign key (packer_id) references packers(id)
     );
   `);
+
+  const orderColumns = db.prepare("pragma table_info(orders)").all().map((column) => column.name);
+  if (!orderColumns.includes("shipping_option")) {
+    db.prepare("alter table orders add column shipping_option text").run();
+  }
 }
 
 export function nowIso() {

@@ -43,7 +43,8 @@ export function mapImportRow(row, channel) {
       orderItemId: "",
       customerName: value(row, ["ชื่อผู้รับ", "ชื่อลูกค้า", "Customer Name"]),
       shippingProviderCode: providerCode(value(row, ["ขนส่ง", "Shipping Provider", "Logistics Channel"]), channel),
-      sku: value(row, ["เลขอ้างอิง Parent SKU", "Parent SKU", "เลขอ้างอิง SKU", "SKU Reference No.", "sku"]),
+      shippingOption: value(row, ["ตัวเลือกการจัดส่ง", "วิธีการจัดส่ง", "Shipping Option", "Delivery Option"]),
+      sku: value(row, ["เลขอ้างอิง Parent SKU", "Parent SKU", "เลขอ้างอิง SKU", "เลขอ้างอิง SKU (SKU Reference No.)", "SKU Reference No.", "sku"]),
       productName: value(row, ["ชื่อสินค้า", "Product Name"]),
       quantityRequired: quantityValue(value(row, ["จำนวน", "Quantity", "qty"]))
     };
@@ -59,6 +60,7 @@ export function mapImportRow(row, channel) {
       orderItemId,
       customerName: value(row, ["customerName", "Customer Name", "ชื่อลูกค้า"]),
       shippingProviderCode: providerCode(value(row, ["shippingProvider", "Shipment Provider", "ขนส่ง"]), channel),
+      shippingOption: value(row, ["deliveryType", "shipmentTypeName", "shippingProviderType", "Delivery Option", "Shipping Option"]),
       sku: value(row, ["sellerSku", "Seller SKU", "sku"]),
       productName: value(row, ["itemName", "Product Name", "ชื่อสินค้า"]),
       quantityRequired: quantityValue(value(row, ["quantity", "Quantity", "จำนวน"]), 1)
@@ -74,6 +76,7 @@ export function mapImportRow(row, channel) {
       orderItemId: "",
       customerName: value(row, ["Recipient", "Customer Name", "ชื่อลูกค้า"]),
       shippingProviderCode: providerCode(value(row, ["Shipping Provider Name", "Shipping Provider", "Delivery Option", "ขนส่ง"]), channel),
+      shippingOption: value(row, ["Delivery Option", "Fulfillment Type", "Shipping Type"]),
       sku: value(row, ["Seller SKU", "sku"]),
       productName: value(row, ["Product Name", "ชื่อสินค้า"]),
       quantityRequired: quantityValue(value(row, ["Quantity", "จำนวน"]))
@@ -88,6 +91,7 @@ export function mapImportRow(row, channel) {
     orderItemId: "",
     customerName: value(row, ["ชื่อลูกค้า", "Customer Name", "customer_name"]),
     shippingProviderCode: providerCode(value(row, ["ขนส่ง", "Shipping Provider"]), channel),
+    shippingOption: value(row, ["ตัวเลือกการจัดส่ง", "วิธีการจัดส่ง", "Delivery Option", "Shipping Option"]),
     sku: value(row, ["รหัสสินค้า", "SKU", "sku"]),
     productName: value(row, ["ชื่อสินค้า", "Product Name"]),
     quantityRequired: quantityValue(value(row, ["จำนวน", "Quantity", "qty"]))

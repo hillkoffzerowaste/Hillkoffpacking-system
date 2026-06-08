@@ -188,7 +188,7 @@ router.get("/orders", (req, res) => {
   }
 
   if (q) {
-    where.push("(o.tracking_id like @q or o.order_key like @q or o.customer_name like @q)");
+    where.push("(o.tracking_id like @q or o.order_key like @q or o.customer_name like @q or o.shipping_option like @q)");
     params.q = `%${q}%`;
   }
 
@@ -223,6 +223,7 @@ router.post("/orders", (req, res) => {
   const trackingId = String(req.body.tracking_id || orderKey).trim();
   const customerName = String(req.body.customer_name || "").trim();
   const shippingProviderCode = String(req.body.shipping_provider_code || "GENERAL").trim().toUpperCase();
+  const shippingOption = String(req.body.shipping_option || "").trim();
   const items = Array.isArray(req.body.items) ? req.body.items : [];
 
   if (!orderKey || !trackingId) {
@@ -264,10 +265,10 @@ router.post("/orders", (req, res) => {
   const transaction = db.transaction(() => {
     db.prepare(`
       insert into orders
-        (id, channel, order_key, tracking_id, customer_name, shipping_provider_id, status,
+        (id, channel, order_key, tracking_id, customer_name, shipping_provider_id, shipping_option, status,
          imported_at, ready_to_pack_at, source_file_name, deduplication_action, created_at, updated_at)
       values
-        (@id, @channel, @orderKey, @trackingId, @customerName, @shippingProviderId, 'Ready to Pack',
+        (@id, @channel, @orderKey, @trackingId, @customerName, @shippingProviderId, @shippingOption, 'Ready to Pack',
          @now, @now, 'manual-entry', 'created', @now, @now)
     `).run({
       id: orderId,
@@ -276,6 +277,7 @@ router.post("/orders", (req, res) => {
       trackingId,
       customerName: customerName || null,
       shippingProviderId: provider?.id || null,
+      shippingOption: shippingOption || null,
       now
     });
 
@@ -619,6 +621,7 @@ router.post("/dispatch/final-scan", (req, res) => {
     shipping_provider: {
       display_name: order.shipping_provider || "ไม่ระบุขนส่ง"
     },
+    shipping_option: order.shipping_option || null,
     shipped_at: now
   });
 });

@@ -26,6 +26,7 @@ export function findOrderByLookup(lookup) {
     where o.tracking_id = @lookup
        or o.order_key = @lookup
        or o.customer_name like @term
+       or o.shipping_option like @term
     order by o.updated_at desc
     limit 20
   `).all({ lookup, term });

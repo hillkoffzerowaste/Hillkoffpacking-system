@@ -140,6 +140,7 @@ function aggregateImportOrders(mappedRows) {
 
     existing.customer_name ||= mapped.customer_name;
     existing.shipping_provider_code ||= mapped.shipping_provider_code;
+    existing.shipping_option ||= mapped.shipping_option;
     if (mapped.tracking_id && mapped.tracking_id !== mapped.order_key) existing.tracking_id = mapped.tracking_id;
     for (const item of nextItems) {
       const existingItem = existing.items.find((candidate) => sameSku(candidate.sku, item.sku));
@@ -485,7 +486,8 @@ export async function listFirebaseOrders({ status, channel, q, date, month } = {
     orders = orders.filter((order) => {
       return String(order.tracking_id || "").toLowerCase().includes(term)
         || String(order.order_key || "").toLowerCase().includes(term)
-        || String(order.customer_name || "").toLowerCase().includes(term);
+        || String(order.customer_name || "").toLowerCase().includes(term)
+        || String(order.shipping_option || "").toLowerCase().includes(term);
     });
   }
 
@@ -544,6 +546,7 @@ export async function createFirebaseOrder(payload) {
     tracking_id: trackingId,
     customer_name: payload.customer_name || null,
     shipping_provider_id: provider?.id || "GENERAL",
+    shipping_option: payload.shipping_option || null,
     status: "Ready to Pack",
     packed_by: null,
     imported_at: createdAt,
@@ -702,6 +705,7 @@ export async function dispatchFirebaseOrder(value) {
     order_id: order.id,
     status: "Shipped / Handed Over",
     shipping_provider: { display_name: refreshed.shipping_provider },
+    shipping_option: refreshed.shipping_option || null,
     shipped_at: shippedAt,
     duplicate
   };
@@ -802,6 +806,7 @@ export async function recordFirebaseSalesDispatchScan(value) {
     channel: order.channel || "reservation",
     customer_name: order.customer_name || null,
     shipping_provider: order.shipping_provider || "ไม่ระบุขนส่ง",
+    shipping_option: order.shipping_option || null,
     status: order.status,
     scanned_value: value,
     scan_count: existing.exists() ? Number(existing.data().scan_count || 1) + 1 : 1,
@@ -872,9 +877,10 @@ export async function importFirebaseFile({ file, channel, deduplicationAction })
       const existing = await lookupOnly(mapped.tracking_id) || await lookupOnly(mapped.order_key);
       if (existing && deduplicationAction !== "overwrite") {
         const reconciledItems = reconcileImportedOrderItems(existing, mapped);
-        if (reconciledItems) {
+        if (reconciledItems || (!existing.shipping_option && mapped.shipping_option)) {
           await updateFirebaseOrder(existing.id, {
-            items: reconciledItems,
+            ...(reconciledItems ? { items: reconciledItems } : {}),
+            shipping_option: existing.shipping_option || mapped.shipping_option || null,
             deduplication_action: "ignored"
           });
         }
@@ -1005,7 +1011,8 @@ async function lookupOnly(value) {
   return orders.find((candidate) => {
     return String(candidate.tracking_id || "").toLowerCase() === term
       || String(candidate.order_key || "").toLowerCase() === term
-      || String(candidate.customer_name || "").toLowerCase().includes(term);
+      || String(candidate.customer_name || "").toLowerCase().includes(term)
+      || String(candidate.shipping_option || "").toLowerCase().includes(term);
   });
 }
 

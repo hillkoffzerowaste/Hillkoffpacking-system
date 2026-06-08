@@ -19,6 +19,36 @@ test("maps Shopee rows into centralized fields", () => {
   assert.equal(mapped.shippingProviderCode, "SPX");
 });
 
+test("maps shipping options from marketplace exports", () => {
+  const shopee = mapImportRow({
+    "Order ID": "SHP-5001",
+    "Tracking Number": "SPX-TRACK-5001",
+    "SKU Reference No.": "SKU-A",
+    Quantity: "1",
+    "Shipping Option": "Standard Delivery Bulky"
+  }, "shopee");
+
+  const lazada = mapImportRow({
+    orderNumber: "LAZ-5001",
+    trackingCode: "LEX-TRACK-5001",
+    sellerSku: "SKU-B",
+    quantity: "1",
+    deliveryType: "STANDARD"
+  }, "lazada");
+
+  const tiktok = mapImportRow({
+    "Order ID": "TT-5001",
+    "Tracking ID": "JNT-TRACK-5001",
+    "Seller SKU": "SKU-C",
+    Quantity: "1",
+    "Delivery Option": "การจัดส่งแบบมาตรฐาน"
+  }, "tiktok");
+
+  assert.equal(shopee.shippingOption, "Standard Delivery Bulky");
+  assert.equal(lazada.shippingOption, "STANDARD");
+  assert.equal(tiktok.shippingOption, "การจัดส่งแบบมาตรฐาน");
+});
+
 test("maps Shopee parent SKU before SKU reference", () => {
   const mapped = mapImportRow({
     "หมายเลขคำสั่งซื้อ": "SHP-1002",
@@ -29,6 +59,17 @@ test("maps Shopee parent SKU before SKU reference", () => {
   }, "shopee");
 
   assert.equal(mapped.sku, "RB-HK-0347");
+});
+
+test("maps Shopee full SKU reference column name", () => {
+  const mapped = mapImportRow({
+    "หมายเลขคำสั่งซื้อ": "SHP-1003",
+    "*หมายเลขติดตามพัสดุ": "SPX-TRACK-1003",
+    "เลขอ้างอิง SKU (SKU Reference No.)": "SY-MN-0018",
+    "จำนวน": "2"
+  }, "shopee");
+
+  assert.equal(mapped.sku, "SY-MN-0018");
 });
 
 test("maps Lazada quantity with item id key", () => {
