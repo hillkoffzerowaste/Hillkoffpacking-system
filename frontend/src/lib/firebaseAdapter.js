@@ -124,7 +124,7 @@ function eventDatePatch(record = {}) {
 function aggregateImportOrders(mappedRows) {
   const groups = new Map();
   for (const mapped of mappedRows) {
-    const key = `${mapped.channel}\u001f${mapped.tracking_id}\u001f${mapped.order_key}`;
+    const key = `${mapped.channel}\u001f${mapped.order_key || mapped.tracking_id}`;
     const existing = groups.get(key);
     const nextItems = mapped.items || [];
 
@@ -138,6 +138,7 @@ function aggregateImportOrders(mappedRows) {
 
     existing.customer_name ||= mapped.customer_name;
     existing.shipping_provider_code ||= mapped.shipping_provider_code;
+    if (mapped.tracking_id && mapped.tracking_id !== mapped.order_key) existing.tracking_id = mapped.tracking_id;
     for (const item of nextItems) {
       const existingItem = existing.items.find((candidate) => sameSku(candidate.sku, item.sku));
       if (existingItem) {

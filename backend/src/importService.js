@@ -51,7 +51,7 @@ function upsertItems(orderId, mapped) {
 function aggregateMappedOrders(mappedRows) {
   const groups = new Map();
   for (const mapped of mappedRows) {
-    const key = `${mapped.channel}\u001f${mapped.trackingId}\u001f${mapped.orderKey}`;
+    const key = `${mapped.channel}\u001f${mapped.orderKey || mapped.trackingId}`;
     const existing = groups.get(key);
     const item = {
       sku: mapped.sku,
@@ -69,6 +69,7 @@ function aggregateMappedOrders(mappedRows) {
 
     existing.customerName ||= mapped.customerName;
     existing.shippingProviderCode ||= mapped.shippingProviderCode;
+    if (mapped.trackingId && mapped.trackingId !== mapped.orderKey) existing.trackingId = mapped.trackingId;
     const existingItem = existing.items.find((candidate) => candidate.sku === item.sku);
     if (existingItem) {
       existingItem.productName = item.productName || existingItem.productName;
