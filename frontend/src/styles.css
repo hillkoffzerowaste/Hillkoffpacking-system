@@ -177,6 +177,15 @@ button {
   margin: 0;
 }
 
+.panelHeader .secondary {
+  margin-left: auto;
+}
+
+.dangerButton {
+  background: #f6dedb;
+  color: #8b1f18;
+}
+
 .metricsGrid,
 .resultGrid {
   display: grid;

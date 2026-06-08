@@ -11,7 +11,8 @@ import {
   setDoc,
   startAt,
   updateDoc,
-  where
+  where,
+  writeBatch
 } from "firebase/firestore";
 import { ensureFirebaseAuth, getFirebaseServices } from "./firebase";
 import { mapImportRow, parseImportFileAuto } from "./importParser";
@@ -824,6 +825,26 @@ export async function listFirebaseBatches() {
   const db = requireFirestore();
   const snapshot = await getDocs(query(collection(db, "import_batches"), orderBy("created_at", "desc"), limit(100)));
   return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+}
+
+export async function clearFirebaseBatches() {
+  await ensureFirebaseReady();
+  const db = requireFirestore();
+  let deleted = 0;
+
+  while (true) {
+    const snapshot = await getDocs(query(collection(db, "import_batches"), limit(450)));
+    if (snapshot.empty) break;
+
+    const batch = writeBatch(db);
+    snapshot.docs.forEach((item) => {
+      batch.delete(item.ref);
+      deleted += 1;
+    });
+    await batch.commit();
+  }
+
+  return { deleted };
 }
 
 export async function resetFirebaseDemo() {

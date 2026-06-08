@@ -314,6 +314,11 @@ router.get("/imports/batches", (_req, res) => {
   res.json({ batches });
 });
 
+router.delete("/imports/batches", (_req, res) => {
+  const result = db.prepare("delete from import_batches").run();
+  res.json({ deleted: result.changes });
+});
+
 router.get("/orders/:id", (req, res) => {
   const order = getOrderDetail(req.params.id);
   if (!order) {

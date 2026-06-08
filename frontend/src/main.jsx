@@ -36,6 +36,7 @@ import {
   identifyFirebasePacker,
   importFirebaseFile,
   importFirebaseProductBarcodes,
+  clearFirebaseBatches,
   listFirebaseSalesDispatchScans,
   listFirebaseBatches,
   listFirebaseOrders,
@@ -302,6 +303,7 @@ async function firebaseApi(path, options = {}) {
   if (path === "/product-barcodes/conflict-resolution" && method === "POST") return recordFirebaseSkuConflictResolution(body);
   if (path === "/dashboard/summary") return firebaseSummary();
   if (path === "/orders/ready") return { orders: await listFirebaseReadyOrders() };
+  if (path === "/imports/batches" && method === "DELETE") return clearFirebaseBatches();
   if (path === "/imports/batches") return { batches: await listFirebaseBatches() };
   if (path.startsWith("/scan-events")) {
     const params = new URLSearchParams(path.split("?")[1] || "");
@@ -755,6 +757,12 @@ async function localApi(path, options = {}) {
     return detail;
   }
 
+  if (path === "/imports/batches" && method === "DELETE") {
+    const deleted = db.batches.length;
+    db.batches = [];
+    writeLocalDb(db);
+    return { deleted };
+  }
   if (path === "/imports/batches") return { batches: db.batches };
   if (path.startsWith("/scan-events")) {
     const params = new URLSearchParams(path.split("?")[1] || "");
@@ -1362,6 +1370,24 @@ function ImportPage({ onRefresh }) {
     }
   }
 
+  async function clearBatches() {
+    if (!batches.length || busy) return;
+    const confirmed = window.confirm("ล้างประวัติการนำเข้าทั้งหมด? รายการออเดอร์ที่นำเข้าแล้วจะไม่ถูกลบ");
+    if (!confirmed) return;
+
+    setBusy(true);
+    setError("");
+    try {
+      await api("/imports/batches", { method: "DELETE" });
+      setResult(null);
+      await loadBatches();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="pageStack">
       <PageTitle icon={Upload} title="Import Orders" subtitle="นำเข้าไฟล์จาก marketplace และใบสั่งจอง พร้อมตรวจออเดอร์ซ้ำ" />
@@ -1417,7 +1443,13 @@ function ImportPage({ onRefresh }) {
         </section>
 
         <section className="panel">
-          <div className="panelHeader"><FileClock size={20} /><h3>ประวัติการนำเข้า</h3></div>
+          <div className="panelHeader">
+            <FileClock size={20} />
+            <h3>ประวัติการนำเข้า</h3>
+            <button type="button" className="secondary dangerButton" disabled={busy || !batches.length} onClick={clearBatches}>
+              <Trash2 size={18} />ล้างประวัติ
+            </button>
+          </div>
           <DataTable
             columns={["ไฟล์", "ช่องทาง", "แถว", "สร้างใหม่", "อัปเดตเดิม", "ข้ามซ้ำ", "เขียนทับ", "สถานะ"]}
             rows={batches.map((batch) => [
