@@ -40,7 +40,7 @@ test("maps Lazada quantity with item id key", () => {
     quantity: "1"
   }, "lazada");
 
-  assert.equal(mapped.orderKey, "LAZ-ITEM-2001");
+  assert.equal(mapped.orderKey, "LAZ-2001");
   assert.equal(mapped.orderItemId, "LAZ-ITEM-2001");
   assert.equal(mapped.shippingProviderCode, "LEX");
 });
@@ -73,7 +73,8 @@ test("maps Lazada ready-to-ship export columns", () => {
     shippingProvider: "LEX TH"
   }, "lazada");
 
-  assert.equal(mapped.orderKey, "1096926859852566");
+  assert.equal(mapped.orderKey, "1096926859752566");
+  assert.equal(mapped.orderItemId, "1096926859852566");
   assert.equal(mapped.trackingId, "LEXPU0687681782");
   assert.equal(mapped.sku, "RB-RT-0104");
   assert.equal(mapped.shippingProviderCode, "LEX");

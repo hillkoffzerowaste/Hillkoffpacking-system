@@ -42,6 +42,44 @@ function upsertItem(orderId, mapped) {
   });
 }
 
+function upsertItems(orderId, mapped) {
+  for (const item of mapped.items || [mapped]) {
+    upsertItem(orderId, { ...mapped, ...item });
+  }
+}
+
+function aggregateMappedOrders(mappedRows) {
+  const groups = new Map();
+  for (const mapped of mappedRows) {
+    const key = `${mapped.channel}\u001f${mapped.trackingId}\u001f${mapped.orderKey}`;
+    const existing = groups.get(key);
+    const item = {
+      sku: mapped.sku,
+      productName: mapped.productName,
+      quantityRequired: mapped.quantityRequired
+    };
+
+    if (!existing) {
+      groups.set(key, {
+        ...mapped,
+        items: [item]
+      });
+      continue;
+    }
+
+    existing.customerName ||= mapped.customerName;
+    existing.shippingProviderCode ||= mapped.shippingProviderCode;
+    const existingItem = existing.items.find((candidate) => candidate.sku === item.sku);
+    if (existingItem) {
+      existingItem.productName = item.productName || existingItem.productName;
+      existingItem.quantityRequired += item.quantityRequired;
+    } else {
+      existing.items.push(item);
+    }
+  }
+  return [...groups.values()];
+}
+
 function createOrder(mapped, batchId, sourceFileName) {
   const now = nowIso();
   const provider = findProviderByCode(mapped.shippingProviderCode);
@@ -65,7 +103,7 @@ function createOrder(mapped, batchId, sourceFileName) {
     batchId,
     now
   });
-  upsertItem(id, mapped);
+  upsertItems(id, mapped);
   return id;
 }
 
@@ -104,7 +142,7 @@ function overwriteOrder(existing, mapped, batchId, sourceFileName) {
     now
   });
   db.prepare("delete from order_items where order_id = ?").run(existing.id);
-  upsertItem(existing.id, mapped);
+  upsertItems(existing.id, mapped);
   return existing.id;
 }
 
@@ -130,10 +168,20 @@ export function importRows({ rows, channel, deduplicationAction, fileName }) {
   `).run({ id: batchId, channel, fileName, totalRows: rows.length, now });
 
   const transaction = db.transaction(() => {
-    rows.forEach((row, index) => {
+    const mappedOrders = aggregateMappedOrders(rows.map((row, index) => {
       try {
         const mapped = mapImportRow(row, channel);
         validateMappedOrder(mapped, index + 2);
+        return mapped;
+      } catch (error) {
+        stats.error_count += 1;
+        stats.errors.push(error.message);
+        return null;
+      }
+    }).filter(Boolean));
+
+    mappedOrders.forEach((mapped) => {
+      try {
         const duplicate = findDuplicate(mapped);
 
         if (!duplicate) {

@@ -121,6 +121,36 @@ function eventDatePatch(record = {}) {
   return { created_at: createdAt, event_date_key: isoDateKey(createdAt) };
 }
 
+function aggregateImportOrders(mappedRows) {
+  const groups = new Map();
+  for (const mapped of mappedRows) {
+    const key = `${mapped.channel}\u001f${mapped.tracking_id}\u001f${mapped.order_key}`;
+    const existing = groups.get(key);
+    const nextItems = mapped.items || [];
+
+    if (!existing) {
+      groups.set(key, {
+        ...mapped,
+        items: nextItems.map((item) => ({ ...item }))
+      });
+      continue;
+    }
+
+    existing.customer_name ||= mapped.customer_name;
+    existing.shipping_provider_code ||= mapped.shipping_provider_code;
+    for (const item of nextItems) {
+      const existingItem = existing.items.find((candidate) => sameSku(candidate.sku, item.sku));
+      if (existingItem) {
+        existingItem.product_name = item.product_name || existingItem.product_name || null;
+        existingItem.quantity_required = Number(existingItem.quantity_required || 0) + Number(item.quantity_required || 1);
+      } else {
+        existing.items.push({ ...item });
+      }
+    }
+  }
+  return [...groups.values()];
+}
+
 function sameSku(left, right) {
   return String(left || "").trim().toUpperCase() === String(right || "").trim().toUpperCase();
 }
@@ -475,7 +505,7 @@ export async function createFirebaseOrder(payload) {
     id: ref.id,
     channel: payload.channel || "reservation",
     order_key: orderKey,
-    order_item_id: null,
+    order_item_id: payload.order_item_id || null,
     tracking_id: trackingId,
     customer_name: payload.customer_name || null,
     shipping_provider_id: provider?.id || "GENERAL",
@@ -794,13 +824,22 @@ export async function importFirebaseFile({ file, channel, deduplicationAction })
     errors: []
   };
 
+  const mappedRows = [];
   for (let index = 0; index < rows.length; index += 1) {
     try {
       const mapped = mapImportRow(rows[index], detectedChannel);
       if (!mapped.order_key || !mapped.tracking_id || !mapped.items[0]?.sku) {
         throw new Error(`Row ${index + 2}: missing order, tracking, or sku`);
       }
+      mappedRows.push(mapped);
+    } catch (error) {
+      stats.error_count += 1;
+      stats.errors.push(error.message);
+    }
+  }
 
+  for (const mapped of aggregateImportOrders(mappedRows)) {
+    try {
       const existing = await lookupOnly(mapped.tracking_id) || await lookupOnly(mapped.order_key);
       if (existing && deduplicationAction !== "overwrite") {
         stats.ignored_count += 1;

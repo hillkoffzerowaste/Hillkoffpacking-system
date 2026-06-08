@@ -51,7 +51,7 @@ export function mapImportRow(row, channel) {
 
   if (channel === "lazada") {
     const orderItemId = value(row, ["orderItemId", "Order Item Id", "order_item_id"]);
-    const orderKey = orderItemId || value(row, ["orderNumber", "Order Number", "order_id"]);
+    const orderKey = value(row, ["orderNumber", "Order Number", "order_id"]) || orderItemId;
     return {
       channel,
       orderKey,

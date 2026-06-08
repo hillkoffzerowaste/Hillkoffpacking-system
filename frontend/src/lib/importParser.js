@@ -553,10 +553,11 @@ export function mapImportRow(row, channel) {
 
   if (channel === "lazada") {
     const orderItemId = value(row, ["orderItemId", "Order Item Id", "order_item_id"]);
-    const orderKey = orderItemId || value(row, ["orderNumber", "Order Number", "order_id"]);
+    const orderKey = value(row, ["orderNumber", "Order Number", "order_id"]) || orderItemId;
     return {
       channel,
       order_key: orderKey,
+      order_item_id: orderItemId,
       tracking_id: value(row, ["trackingCode", "Tracking Code", "tracking_id"]) || orderKey,
       customer_name: value(row, ["customerName", "Customer Name", "ชื่อลูกค้า"]),
       shipping_provider_code: providerCode(value(row, ["shippingProvider", "Shipment Provider", "ขนส่ง"]), channel),
