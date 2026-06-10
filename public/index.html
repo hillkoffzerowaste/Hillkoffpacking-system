@@ -144,7 +144,8 @@
     firebase.initializeApp(firebaseConfig);
     const auth = firebase.auth();
 
-    const API_BASE = 'http://localhost:3001';
+    // Auto-detect API URL (local vs production)
+    const API_BASE = window.location.origin + '';
 
     // Elements
     const loginPage = document.getElementById('loginPage');
