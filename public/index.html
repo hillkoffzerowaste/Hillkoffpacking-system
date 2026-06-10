@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Panel - Packing</title>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    body { background: #f0f2f5; min-height: 100vh; display: flex; justify-content: center; padding: 20px; }
+    .container { max-width: 900px; width: 100%; }
+    
+    /* Login */
+    .login-box { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 400px; margin: 80px auto; }
+    .login-box h2 { text-align: center; margin-bottom: 24px; color: #1a1a2e; }
+    .login-box h2 span { color: #ff6b35; }
+    .login-box input { width: 100%; padding: 12px 16px; margin-bottom: 16px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 15px; transition: border-color 0.2s; }
+    .login-box input:focus { outline: none; border-color: #ff6b35; }
+    .login-box button { width: 100%; padding: 12px; background: #ff6b35; color: white; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; font-weight: 600; transition: background 0.2s; }
+    .login-box button:hover { background: #e55a2b; }
+    .login-box .error-msg { color: #d32f2f; text-align: center; margin-top: 12px; font-size: 14px; display: none; }
+    
+    /* Dashboard */
+    .hidden { display: none !important; }
+    .header { background: white; padding: 20px 24px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    .header h1 { font-size: 22px; color: #1a1a2e; }
+    .header h1 span { color: #ff6b35; }
+    .header .user-info { display: flex; align-items: center; gap: 16px; }
+    .header .user-email { color: #666; font-size: 14px; }
+    .header .btn-logout { padding: 8px 20px; background: #f44336; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; }
+    .header .btn-logout:hover { background: #d32f2f; }
+    
+    .card { background: white; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); padding: 24px; margin-bottom: 24px; }
+    .card h3 { color: #1a1a2e; margin-bottom: 20px; font-size: 18px; }
+    
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+    .form-row input, .form-row select { padding: 10px 14px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; }
+    .form-row input:focus, .form-row select:focus { outline: none; border-color: #ff6b35; }
+    .form-row.full { grid-template-columns: 1fr; }
+    
+    .btn-primary { padding: 10px 24px; background: #ff6b35; color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 600; transition: background 0.2s; }
+    .btn-primary:hover { background: #e55a2b; }
+    .btn-danger { padding: 6px 14px; background: #f44336; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; }
+    .btn-danger:hover { background: #d32f2f; }
+    .btn-disabled { opacity: 0.5; cursor: not-allowed; }
+    
+    .msg-box { padding: 12px 16px; border-radius: 8px; margin-top: 12px; font-size: 14px; display: none; }
+    .msg-box.success { background: #e8f5e9; color: #2e7d32; display: block; }
+    .msg-box.error { background: #ffebee; color: #d32f2f; display: block; }
+    
+    .loading { text-align: center; padding: 40px; color: #999; }
+    .loading::after { content: ''; display: inline-block; width: 20px; height: 20px; margin-left: 8px; border: 3px solid #e0e0e0; border-top-color: #ff6b35; border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 12px 14px; text-align: left; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+    th { background: #fafafa; color: #555; font-weight: 600; }
+    tr:hover { background: #fafafa; }
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; }
+    .badge.active { background: #e8f5e9; color: #2e7d32; }
+    .badge.inactive { background: #ffebee; color: #d32f2f; }
+    .empty-msg { text-align: center; padding: 40px 20px; color: #999; font-size: 14px; }
+    .action-btns { display: flex; gap: 6px; }
+    .toast { position: fixed; bottom: 30px; right: 30px; padding: 16px 24px; border-radius: 8px; color: white; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); transform: translateY(100px); opacity: 0; transition: all 0.3s; z-index: 999; }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { background: #4caf50; }
+    .toast.error { background: #f44336; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Login Form -->
+    <div id="loginPage" class="login-box">
+      <h2>Packing <span>Admin</span></h2>
+      <input type="email" id="loginEmail" placeholder="อีเมล" autocomplete="email">
+      <input type="password" id="loginPassword" placeholder="รหัสผ่าน" autocomplete="current-password">
+      <button onclick="login()">เข้าสู่ระบบ</button>
+      <div id="loginError" class="error-msg"></div>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="dashboard" class="hidden">
+      <div class="header">
+        <h1>📦 Packing <span>Admin Panel</span></h1>
+        <div class="user-info">
+          <span class="user-email" id="userEmail"></span>
+          <button class="btn-logout" onclick="logout()">ออกจากระบบ</button>
+        </div>
+      </div>
+
+      <!-- Create User -->
+      <div class="card">
+        <h3>➕ สร้างผู้ใช้ใหม่</h3>
+        <div class="form-row">
+          <input type="email" id="newEmail" placeholder="อีเมล *" required>
+          <input type="password" id="newPassword" placeholder="รหัสผ่าน *" required>
+        </div>
+        <div class="form-row">
+          <input type="text" id="newDisplayName" placeholder="ชื่อ-นามสกุล">
+          <input type="text" id="newPhone" placeholder="เบอร์โทรศัพท์">
+        </div>
+        <button class="btn-primary" onclick="createUser()">สร้างผู้ใช้</button>
+        <div id="createMsg" class="msg-box"></div>
+      </div>
+
+      <!-- User List -->
+      <div class="card">
+        <h3>📋 รายชื่อผู้ใช้ทั้งหมด</h3>
+        <div id="loadingUsers" class="loading">กำลังโหลดข้อมูล</div>
+        <div id="userTableWrapper" class="hidden">
+          <table>
+            <thead>
+              <tr>
+                <th>ชื่อ</th>
+                <th>อีเมล</th>
+                <th>เบอร์โทร</th>
+                <th>สถานะ</th>
+                <th>สร้างเมื่อ</th>
+                <th>จัดการ</th>
+              </tr>
+            </thead>
+            <tbody id="userTableBody"></tbody>
+          </table>
+        </div>
+        <div id="emptyUsers" class="empty-msg hidden">ยังไม่มีผู้ใช้ในระบบ</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    // 🔥 ใส่ Firebase Config ของโปรเจกต์ packing ที่นี่
+    const firebaseConfig = {
+      apiKey: "AIzaSyDSj72kK8jonEU-yyp4N7gti35-OFIq4XM",
+      authDomain: "hillkoff-packing-system.firebaseapp.com",
+      projectId: "hillkoff-packing-system",
+      storageBucket: "hillkoff-packing-system.firebasestorage.app",
+      messagingSenderId: "602138281824",
+      appId: "1:602138281824:web:d81ed175bf85ec0662c005"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+
+    const API_BASE = 'http://localhost:3001';
+
+    // Elements
+    const loginPage = document.getElementById('loginPage');
+    const dashboard = document.getElementById('dashboard');
+    const loginEmail = document.getElementById('loginEmail');
+    const loginPassword = document.getElementById('loginPassword');
+    const loginError = document.getElementById('loginError');
+    const userEmail = document.getElementById('userEmail');
+    const toast = document.getElementById('toast');
+
+    // Check auth state
+    auth.onAuthStateChanged(user => {
+      if (user) {
+        showDashboard(user);
+        loadUsers(user);
+      } else {
+        showLogin();
+      }
+    });
+
+    function showLogin() {
+      loginPage.classList.remove('hidden');
+      dashboard.classList.add('hidden');
+    }
+
+    function showDashboard(user) {
+      loginPage.classList.add('hidden');
+      dashboard.classList.remove('hidden');
+      userEmail.textContent = user.email;
+    }
+
+    // Login
+    async function login() {
+      const email = loginEmail.value.trim();
+      const password = loginPassword.value;
+      
+      if (!email || !password) {
+        showLoginError('กรุณากรอกอีเมลและรหัสผ่าน');
+        return;
+      }
+
+      loginError.style.display = 'none';
+      
+      try {
+        await auth.signInWithEmailAndPassword(email, password);
+        loginEmail.value = '';
+        loginPassword.value = '';
+        showToast('เข้าสู่ระบบสำเร็จ!', 'success');
+      } catch (error) {
+        let msg = 'เข้าสู่ระบบไม่สำเร็จ';
+        if (error.code === 'auth/user-not-found') msg = 'ไม่พบบัญชีผู้ใช้';
+        else if (error.code === 'auth/wrong-password') msg = 'รหัสผ่านไม่ถูกต้อง';
+        else if (error.code === 'auth/invalid-credential') msg = 'อีเมลหรือรหัสผ่านไม่ถูกต้อง';
+        else if (error.code === 'auth/too-many-requests') msg = 'ลองใหม่ภายหลัง (รอสักครู่)';
+        showLoginError(msg);
+      }
+    }
+
+    function showLoginError(msg) {
+      loginError.textContent = msg;
+      loginError.style.display = 'block';
+    }
+
+    // Logout
+    function logout() {
+      auth.signOut();
+      showToast('ออกจากระบบแล้ว', 'success');
+    }
+
+    // Create User
+    async function createUser() {
+      const email = document.getElementById('newEmail').value.trim();
+      const password = document.getElementById('newPassword').value;
+      const displayName = document.getElementById('newDisplayName').value.trim();
+      const phoneNumber = document.getElementById('newPhone').value.trim();
+
+      if (!email || !password) {
+        showMsg('createMsg', 'กรุณากรอกอีเมลและรหัสผ่าน', 'error');
+        return;
+      }
+
+      if (password.length < 6) {
+        showMsg('createMsg', 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร', 'error');
+        return;
+      }
+
+      const msgBox = document.getElementById('createMsg');
+      msgBox.className = 'msg-box';
+      msgBox.textContent = '⏳ กำลังสร้างผู้ใช้...';
+      msgBox.style.display = 'block';
+
+      try {
+        const user = auth.currentUser;
+        if (!user) throw new Error('กรุณาเข้าสู่ระบบก่อน');
+
+        const idToken = await user.getIdToken();
+
+        const res = await fetch(`${API_BASE}/api/admin/create-user`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${idToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ email, password, displayName, phoneNumber })
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+          showMsg('createMsg', `✅ ${data.message} (${data.email})`, 'success');
+          document.getElementById('newEmail').value = '';
+          document.getElementById('newPassword').value = '';
+          document.getElementById('newDisplayName').value = '';
+          document.getElementById('newPhone').value = '';
+          loadUsers(user);
+          showToast(`สร้างผู้ใช้ ${data.email} สำเร็จ!`, 'success');
+        } else {
+          showMsg('createMsg', `❌ ${data.error}`, 'error');
+        }
+      } catch (error) {
+        showMsg('createMsg', `❌ ${error.message}`, 'error');
+      }
+    }
+
+    // Load Users
+    async function loadUsers(user) {
+      const loading = document.getElementById('loadingUsers');
+      const tableWrapper = document.getElementById('userTableWrapper');
+      const empty = document.getElementById('emptyUsers');
+      const tbody = document.getElementById('userTableBody');
+
+      loading.classList.remove('hidden');
+      tableWrapper.classList.add('hidden');
+      empty.classList.add('hidden');
+
+      try {
+        const idToken = await user.getIdToken();
+        const res = await fetch(`${API_BASE}/api/admin/users`, {
+          headers: { 'Authorization': `Bearer ${idToken}` }
+        });
+        const data = await res.json();
+
+        loading.classList.add('hidden');
+
+        if (!data.users || data.users.length === 0) {
+          empty.classList.remove('hidden');
+          return;
+        }
+
+        tableWrapper.classList.remove('hidden');
+        tbody.innerHTML = '';
+
+        data.users.forEach(u => {
+          const createdDate = u.createdAt ? new Date(u.createdAt._seconds * 1000).toLocaleDateString('th-TH') : '-';
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${u.displayName || '-'}</td>
+            <td>${u.email}</td>
+            <td>${u.phoneNumber || '-'}</td>
+            <td><span class="badge ${u.isActive ? 'active' : 'inactive'}">${u.isActive ? 'ใช้งาน' : 'ปิด'}</span></td>
+            <td>${createdDate}</td>
+            <td class="action-btns">
+              <button class="btn-danger" onclick="deleteUser('${u.uid}', '${u.email}')">ลบ</button>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch (error) {
+        loading.classList.add('hidden');
+        empty.textContent = `โหลดข้อมูลไม่สำเร็จ: ${error.message}`;
+        empty.classList.remove('hidden');
+      }
+    }
+
+    // Delete User
+    async function deleteUser(uid, email) {
+      if (!confirm(`แน่ใจว่าต้องการลบผู้ใช้ "${email}"?`)) return;
+
+      try {
+        const user = auth.currentUser;
+        const idToken = await user.getIdToken();
+
+        const res = await fetch(`${API_BASE}/api/admin/delete-user/${uid}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${idToken}` }
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+          showToast(`ลบผู้ใช้ ${email} สำเร็จ`, 'success');
+          loadUsers(user);
+        } else {
+          showToast(`ลบไม่สำเร็จ: ${data.error}`, 'error');
+        }
+      } catch (error) {
+        showToast(`ลบไม่สำเร็จ: ${error.message}`, 'error');
+      }
+    }
+
+    // Helpers
+    function showMsg(id, text, type) {
+      const el = document.getElementById(id);
+      el.textContent = text;
+      el.className = `msg-box ${type}`;
+      el.style.display = 'block';
+    }
+
+    function showToast(text, type) {
+      toast.textContent = text;
+      toast.className = `toast ${type}`;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+  </script>
+</body>
+</html>
