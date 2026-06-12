@@ -39,7 +39,6 @@ This repository now includes a runnable web app for the full workflow:
 - Backend: Express + SQLite
 - Frontend: React + Vite
 - Import parsing: CSV and XLS/XLSX
-- Demo data reset endpoint
 - Multi-screen operations UI
 
 ### Run Locally
@@ -112,15 +111,6 @@ frontend/src/lib/firebaseAdapter.js
 firebase.json
 firestore.rules
 firestore.indexes.json
-```
-
-Demo scan values:
-
-```text
-Packer barcode: EMP001
-Order tracking: SPX-TRACK-1001
-SKU scan: COF-DRIP-001
-Final scan: SPX-TRACK-1001
 ```
 
 Sample import files are available in `imports/`.

@@ -49,7 +49,6 @@ import {
   listFirebaseScanEvents,
   lookupFirebaseOrder,
   recordFirebaseSkuConflictResolution,
-  resetFirebaseDemo,
   resolveFirebaseProductBarcodeConflict,
   recordFirebaseSalesDispatchScan,
   scanFirebaseSku,
@@ -329,7 +328,6 @@ async function firebaseApi(path, options = {}) {
   if (path === "/sales/dispatch-scans" && method === "POST") {
     return { scan: await recordFirebaseSalesDispatchScan(body.tracking_or_order_id) };
   }
-  if (path === "/demo/reset" && method === "POST") return resetFirebaseDemo();
   if (path === "/imports/orders" && method === "POST" && options.body instanceof FormData) {
     return importFirebaseFile({
       file: options.body.get("file"),
@@ -566,38 +564,6 @@ function resolveLocalScannedOrderItem(db, order, scannedSku) {
   return { error: "Barcode is not linked to a SKU yet." };
 }
 
-function resetLocalDemo() {
-  localStorage.removeItem(LOCAL_STORE_KEY);
-  const db = readLocalDb();
-  const rows = [
-    { channel: "shopee", order_key: "SHP-1001", tracking_id: "SPX-TRACK-1001", customer_name: "คุณเอ", shipping_provider_code: "SPX", items: [{ sku: "COF-DRIP-001", product_name: "Drip Coffee", quantity_required: 2 }] },
-    { channel: "lazada", order_key: "LAZ-2001", tracking_id: "LEX-TRACK-2001", customer_name: "คุณบี", shipping_provider_code: "LEX", items: [{ sku: "COF-BEAN-250G", product_name: "Coffee Beans 250g", quantity_required: 1 }] },
-    { channel: "reservation", order_key: "RSV-3001", tracking_id: "RSV-3001", customer_name: "คุณซี", shipping_provider_code: "GENERAL", items: [{ sku: "COF-GIFT-SET", product_name: "Gift Set", quantity_required: 1 }] }
-  ];
-
-  for (const row of rows) {
-    createLocalOrder(db, row);
-  }
-
-  db.batches.unshift({
-    id: uid(),
-    source: "local-demo",
-    channel: "mixed",
-    file_name: "local-demo",
-    total_rows: rows.length,
-    created_count: rows.length,
-    updated_count: 0,
-    ignored_count: 0,
-    overwritten_count: 0,
-    error_count: 0,
-    status: "completed",
-    created_at: nowIso(),
-    completed_at: nowIso()
-  });
-  writeLocalDb(db);
-  return { ok: true, batches: db.batches.slice(0, 1), demo_scans: ["EMP001", "SPX-TRACK-1001", "COF-DRIP-001", "COF-DRIP-001"] };
-}
-
 function createLocalOrder(db, payload) {
   const orderKey = String(payload.order_key || "").trim();
   const trackingId = String(payload.tracking_id || orderKey).trim();
@@ -694,8 +660,6 @@ async function localApi(path, options = {}) {
     writeLocalDb(db);
     return { ok: true };
   }
-  if (path === "/demo/reset" && method === "POST") return resetLocalDemo();
-
   if (path === "/dashboard/summary") {
     const today = nowIso().slice(0, 10);
     const active = db.orders.filter((order) => ["Ready to Pack", "Packing In Progress", "Scan Completed", "Verified", "Packed"].includes(order.status));
@@ -1229,14 +1193,13 @@ function Metric({ label, value, tone }) {
   );
 }
 
-function DashboardPage({ summary, readyOrders, onDemoReset, busy }) {
+function DashboardPage({ summary, readyOrders }) {
   return (
     <div className="pageStack">
       <PageTitle
         icon={LayoutDashboard}
         title="Operations Dashboard"
         subtitle="ภาพรวมงานนำเข้า แพ็ค และจัดส่งแบบ real time"
-        action={<button className="primary" disabled={busy} onClick={onDemoReset}><Archive size={18} />โหลดข้อมูลตัวอย่าง</button>}
       />
 
       <div className="metricsGrid">
@@ -1620,7 +1583,7 @@ function NewOrderPage({ onRefresh, onGoPacking }) {
         {created && (
           <Alert>
             สร้างออเดอร์ {created.order_key} แล้ว สแกนด้วย {created.tracking_id}
-            <button className="inlineAction" onClick={() => onGoPacking(created.tracking_id)}>ไปหน้า Packing</button>
+            <button type="button" className="inlineAction" onClick={() => onGoPacking(created.tracking_id)}>ไปหน้า Packing</button>
           </Alert>
         )}
         {cameraTarget && (
@@ -1877,7 +1840,7 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
           <div className="panelHeader"><ClipboardList size={20} /><h3>คิวรอแพ็ค</h3></div>
           <div className="queueList">
             {readyOrders.slice(0, 12).map((item) => (
-              <button className="queueItem" key={item.id} onClick={() => setLookup(item.tracking_id)}>
+              <button type="button" className="queueItem" key={item.id} onClick={() => setLookup(item.tracking_id)}>
                 <strong>{item.tracking_id}</strong>
                 <span>{item.shipping_provider || "ไม่ระบุขนส่ง"}</span>
                 <StatusBadge status={item.status} />
@@ -2181,7 +2144,7 @@ function SalesDispatchPage() {
         icon={Archive}
         title="Sales Dispatch Sheet"
         subtitle="สแกนใบปะหน้าสำหรับฝ่ายขาย แล้วส่งออกเป็นรายงานประจำวัน"
-        action={<button className="secondary" onClick={() => Promise.all([loadScans(), loadMonthScans()])}><RefreshCw size={18} />รีเฟรช</button>}
+        action={<button type="button" className="secondary" onClick={() => Promise.all([loadScans(), loadMonthScans()])}><RefreshCw size={18} />รีเฟรช</button>}
       />
 
       <section className="salesScannerPanel">
@@ -2228,8 +2191,8 @@ function SalesDispatchPage() {
             <input type="month" value={month} onChange={(event) => changeMonth(event.target.value)} />
           </label>
           <div className="toolbarActions">
-            <button className="secondary" disabled={!monthExportRows.length} onClick={exportMonthCsv}><FileClock size={18} />ส่งออก CSV รายเดือน</button>
-            <button className="primary" disabled={!monthExportRows.length} onClick={exportMonthExcel}><Archive size={18} />ส่งออก Excel รายเดือน</button>
+            <button type="button" className="secondary" disabled={!monthExportRows.length} onClick={exportMonthCsv}><FileClock size={18} />ส่งออก CSV รายเดือน</button>
+            <button type="button" className="primary" disabled={!monthExportRows.length} onClick={exportMonthExcel}><Archive size={18} />ส่งออก Excel รายเดือน</button>
           </div>
         </div>
         <div className="salesInsightsGrid">
@@ -2260,11 +2223,11 @@ function SalesDispatchPage() {
             <input type="date" value={date} onChange={(event) => changeDate(event.target.value)} />
           </label>
           <div className="toolbarActions">
-            <button className="secondary" onClick={() => changeDate(shiftDateKey(date, -1))}>วันก่อนหน้า</button>
-            <button className="secondary" onClick={() => changeDate(todayKey())}>วันนี้</button>
-            <button className="secondary" onClick={() => changeDate(shiftDateKey(date, 1))}>วันถัดไป</button>
-            <button className="secondary" disabled={!exportRows.length} onClick={exportCsv}><FileClock size={18} />ส่งออก CSV</button>
-            <button className="primary" disabled={!exportRows.length} onClick={exportExcel}><Archive size={18} />ส่งออก Excel</button>
+            <button type="button" className="secondary" onClick={() => changeDate(shiftDateKey(date, -1))}>วันก่อนหน้า</button>
+            <button type="button" className="secondary" onClick={() => changeDate(todayKey())}>วันนี้</button>
+            <button type="button" className="secondary" onClick={() => changeDate(shiftDateKey(date, 1))}>วันถัดไป</button>
+            <button type="button" className="secondary" disabled={!exportRows.length} onClick={exportCsv}><FileClock size={18} />ส่งออก CSV</button>
+            <button type="button" className="primary" disabled={!exportRows.length} onClick={exportExcel}><Archive size={18} />ส่งออก Excel</button>
           </div>
         </div>
         <DataTable
@@ -2471,14 +2434,14 @@ function ExecutiveReportsPage() {
         icon={FileClock}
         title="Executive Reports"
         subtitle="สรุปรายวัน/รายเดือนสำหรับผู้บริหาร ทั้งภาพรวม ปัญหา ยอดส่งออก และยอดค้างส่ง"
-        action={<button className="secondary" onClick={() => loadReport()}><RefreshCw size={18} />รีเฟรช</button>}
+        action={<button type="button" className="secondary" onClick={() => loadReport()}><RefreshCw size={18} />รีเฟรช</button>}
       />
 
       <section className="panel">
         <div className="reportToolbar">
           <div className="segmentedControl">
-            <button className={scope === "daily" ? "active" : ""} onClick={() => changeScope("daily")}>รายวัน</button>
-            <button className={scope === "monthly" ? "active" : ""} onClick={() => changeScope("monthly")}>รายเดือน</button>
+            <button type="button" className={scope === "daily" ? "active" : ""} onClick={() => changeScope("daily")}>รายวัน</button>
+            <button type="button" className={scope === "monthly" ? "active" : ""} onClick={() => changeScope("monthly")}>รายเดือน</button>
           </div>
           {scope === "daily" ? (
             <label>วันที่
@@ -2490,9 +2453,9 @@ function ExecutiveReportsPage() {
             </label>
           )}
           <div className="toolbarActions">
-            <button className="secondary" disabled={!reportRows.length} onClick={copyReport}><Copy size={18} />คัดลอก</button>
-            <button className="secondary" disabled={!reportRows.length} onClick={exportCsv}><FileClock size={18} />CSV</button>
-            <button className="primary" disabled={!reportRows.length} onClick={exportExcel}><Archive size={18} />Excel</button>
+            <button type="button" className="secondary" disabled={!reportRows.length} onClick={copyReport}><Copy size={18} />คัดลอก</button>
+            <button type="button" className="secondary" disabled={!reportRows.length} onClick={exportCsv}><FileClock size={18} />CSV</button>
+            <button type="button" className="primary" disabled={!reportRows.length} onClick={exportExcel}><Archive size={18} />Excel</button>
           </div>
         </div>
       </section>
@@ -2626,7 +2589,7 @@ function SkuDatabasePage() {
         icon={Barcode}
         title="SKU Database"
         subtitle="เก็บฐานข้อมูลบาร์โค้ดสินค้าไว้ใช้ตรวจ SKU และนำเข้าไฟล์ SKU ในอนาคต"
-        action={<button className="secondary" onClick={loadItems}><RefreshCw size={18} />รีเฟรช</button>}
+        action={<button type="button" className="secondary" onClick={loadItems}><RefreshCw size={18} />รีเฟรช</button>}
       />
       <section className="panel">
         <div className="panelHeader"><Upload size={20} /><h3>นำเข้าไฟล์ SKU</h3></div>
@@ -2738,7 +2701,7 @@ function OrdersPage({ onRefresh }) {
           <DataTable
             columns={["เลขพัสดุ", "ออเดอร์", "ช่องทาง", "ลูกค้า", "ขนส่ง", "ตัวเลือกจัดส่ง", "สถานะ", "อัปเดต"]}
             rows={orders.map((order) => [
-              <button className="linkButton" onClick={() => openOrder(order.id)}>{order.tracking_id}</button>,
+              <button type="button" className="linkButton" onClick={() => openOrder(order.id)}>{order.tracking_id}</button>,
               order.order_key,
               channelLabel(order.channel),
               order.customer_name || "-",
@@ -2802,7 +2765,7 @@ function AuditPage() {
 
   return (
     <div className="pageStack">
-      <PageTitle icon={FileClock} title="Scan Audit" subtitle="ประวัติการสแกนทั้งหมด ใช้ไล่ปัญหา SKU ผิดหรือออเดอร์ไม่พบ" action={<button className="secondary" onClick={() => loadEvents(filters)}><RefreshCw size={18} />รีเฟรช</button>} />
+      <PageTitle icon={FileClock} title="Scan Audit" subtitle="ประวัติการสแกนทั้งหมด ใช้ไล่ปัญหา SKU ผิดหรือออเดอร์ไม่พบ" action={<button type="button" className="secondary" onClick={() => loadEvents(filters)}><RefreshCw size={18} />รีเฟรช</button>} />
       <section className="panel">
         <div className="salesToolbar">
           <label>วันที่
@@ -2820,12 +2783,12 @@ function AuditPage() {
             }} />
           </label>
           <div className="toolbarActions">
-            <button className="secondary" onClick={() => {
+            <button type="button" className="secondary" onClick={() => {
               const next = { date: todayKey(), month: "" };
               setFilters(next);
               loadEvents(next);
             }}>วันนี้</button>
-            <button className="secondary" onClick={() => loadEvents(filters)}><RefreshCw size={18} />รีเฟรช</button>
+            <button type="button" className="secondary" onClick={() => loadEvents(filters)}><RefreshCw size={18} />รีเฟรช</button>
           </div>
         </div>
         <DataTable
@@ -3007,19 +2970,6 @@ function App() {
     }
   }
 
-  async function resetDemo() {
-    setBusy(true);
-    try {
-      await api("/demo/reset", { method: "POST", body: JSON.stringify({}) });
-      await refresh();
-      setActivePage("dashboard");
-    } catch (err) {
-      setApiError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   useEffect(() => {
     if (DATA_MODE !== "firebase") return undefined;
     return subscribeFirebaseUser((user) => {
@@ -3098,7 +3048,7 @@ function App() {
   }
 
   const page = {
-    dashboard: <DashboardPage summary={summary} readyOrders={readyOrders} onDemoReset={resetDemo} busy={busy} />,
+    dashboard: <DashboardPage summary={summary} readyOrders={readyOrders} />,
     "new-order": <NewOrderPage onRefresh={refresh} onGoPacking={(trackingId) => {
       setPackingLookup(trackingId);
       setActivePage("packing");
@@ -3125,7 +3075,7 @@ function App() {
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             return (
-              <button key={item.id} className={activePage === item.id ? "active" : ""} onClick={() => setActivePage(item.id)}>
+              <button type="button" key={item.id} className={activePage === item.id ? "active" : ""} onClick={() => setActivePage(item.id)}>
                 <Icon size={19} />
                 {item.label}
               </button>
@@ -3142,11 +3092,11 @@ function App() {
           </div>
           <div className="topbarActions">
             {IS_NATIVE_WEBVIEW && (
-              <button className="secondary" onClick={reloadAppVersion}><RefreshCw size={18} />อัปเดตหน้าเว็บ</button>
+              <button type="button" className="secondary" onClick={reloadAppVersion}><RefreshCw size={18} />อัปเดตหน้าเว็บ</button>
             )}
-            <button className="secondary" onClick={refresh}><RefreshCw size={18} />รีเฟรช</button>
+            <button type="button" className="secondary" onClick={refresh}><RefreshCw size={18} />รีเฟรช</button>
             {DATA_MODE === "firebase" && (
-              <button className="secondary" onClick={logout}><LogOut size={18} />ออกจากระบบ</button>
+              <button type="button" className="secondary" onClick={logout}><LogOut size={18} />ออกจากระบบ</button>
             )}
           </div>
         </header>

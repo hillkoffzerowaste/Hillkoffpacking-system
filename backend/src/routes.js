@@ -631,45 +631,6 @@ router.post("/dispatch/final-scan", (req, res) => {
   });
 });
 
-router.post("/demo/reset", (_req, res) => {
-  db.prepare("delete from scan_events").run();
-  db.prepare("delete from order_items").run();
-  db.prepare("delete from orders").run();
-  db.prepare("delete from import_batches").run();
-
-  const rows = [
-    {
-      "หมายเลขคำสั่งซื้อ": "SHP-1001",
-      "หมายเลขติดตามพัสดุ": "SPX-TRACK-1001",
-      "เลขอ้างอิง SKU": "COF-DRIP-001",
-      "จำนวน": "2",
-      "ชื่อผู้รับ": "คุณเอ",
-      "ขนส่ง": "SPX"
-    },
-    {
-      orderNumber: "LAZ-2001",
-      trackingCode: "LEX-TRACK-2001",
-      sellerSku: "COF-BEAN-250G",
-      quantity: "1",
-      customerName: "คุณบี",
-      shippingProvider: "LEX TH"
-    },
-    {
-      "เลขที่ใบสั่งจอง": "RSV-3001",
-      "รหัสสินค้า": "COF-GIFT-SET",
-      "จำนวน": "1",
-      "ชื่อลูกค้า": "คุณซี",
-      "ขนส่ง": "รถโรงงาน"
-    }
-  ];
-
-  const shopee = importRows({ rows: [rows[0]], channel: "shopee", deduplicationAction: "overwrite", fileName: "demo-shopee.csv" });
-  const lazada = importRows({ rows: [rows[1]], channel: "lazada", deduplicationAction: "overwrite", fileName: "demo-lazada.csv" });
-  const reservation = importRows({ rows: [rows[2]], channel: "reservation", deduplicationAction: "overwrite", fileName: "demo-reservation.csv" });
-
-  res.json({ ok: true, batches: [shopee, lazada, reservation], demo_scans: ["EMP001", "SPX-TRACK-1001", "COF-DRIP-001", "COF-DRIP-001"] });
-});
-
 router.get("/scan-events", (_req, res) => {
   const events = db.prepare(`
     select se.*, o.order_key, o.tracking_id, p.display_name as packer_name

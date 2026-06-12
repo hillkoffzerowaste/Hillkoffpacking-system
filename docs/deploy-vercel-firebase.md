@@ -95,7 +95,7 @@ VITE_FIREBASE_APP_ID=...
 VITE_FIREBASE_MEASUREMENT_ID=...
 ```
 
-After deploy, open the app and click `Load Demo`. The app should create default packers, shipping providers, demo orders, and scan events in Firestore.
+After deploy, open the app, sign in, and confirm the dashboard starts at zero when no real orders have been imported. Then import the first real marketplace file from the Import screen.
 
 ## GitHub Pages Shared Data
 

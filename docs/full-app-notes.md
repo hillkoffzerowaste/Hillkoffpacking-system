@@ -15,17 +15,13 @@
 | Audit | ตรวจ scan events ทั้ง success/error |
 | Settings | เพิ่ม packer และ shipping provider |
 
-## Demo Flow
+## Production Start Flow
 
-1. เปิด `http://localhost:5173`
-2. กด `Load Demo` ที่ Dashboard
-3. ไปหน้า Packing
-4. ใช้ packer barcode `EMP001`
-5. โหลดออเดอร์ด้วย `SPX-TRACK-1001`
-6. สแกน SKU `COF-DRIP-001` จำนวน 2 ครั้ง
-7. ไปหน้า Dispatch
-8. สแกน `SPX-TRACK-1001`
-9. ระบบแสดง route เป็น `SPX` และเปลี่ยนสถานะเป็น `Shipped / Handed Over`
+1. เปิดเว็บแอพและล็อกอินด้วยบัญชีที่ตั้งค่าไว้
+2. ตรวจหน้า Dashboard ให้เริ่มต้นเป็น 0 เมื่อยังไม่มีออเดอร์จริง
+3. ตั้งค่าพนักงานแพ็คและขนส่งในหน้า Settings ถ้ายังไม่มี
+4. ไปหน้า Import แล้วนำเข้าไฟล์ออเดอร์จริงจาก marketplace
+5. ใช้หน้า Packing, Dispatch, Orders, Audit และ Reports ตาม flow งานจริง
 
 ## Backend Endpoints Added For Full App
 
