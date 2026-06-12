@@ -79,8 +79,10 @@ Build behavior:
 
 Shared-data deployment:
 
-- Enable Firebase Firestore and Anonymous Authentication
+- Enable Firebase Firestore and Email/Password Authentication
+- Create one Firebase Authentication user for the app login
 - Add Firebase web config to GitHub repository secrets/variables
+- Add GitHub repository variables `VITE_LOGIN_USERNAME` and `VITE_LOGIN_EMAIL`
 - Run the `Deploy shared-data web app` GitHub Actions workflow
 - Install the signed release APK; Android and browser users will use the same deployed Firebase-backed app
 
@@ -92,7 +94,7 @@ GitHub Pages:
 https://hillkoffzerowaste.github.io/Hillkoffpacking-system/
 ```
 
-On GitHub Pages, the app runs in browser local mode because GitHub Pages cannot run the Express/SQLite backend. Manual order entry, packing scan, dispatch scan, audit log, packers, and shipping providers are stored in the browser's `localStorage`.
+On GitHub Pages, the app runs in Firebase mode. Android and browser users share the same Firestore data after signing in with the single configured username/password account.
 
 Vercel deployment files are included:
 

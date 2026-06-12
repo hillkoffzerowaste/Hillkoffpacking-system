@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, signInAnonymously } from "firebase/auth";
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 export const firebaseConfig = {
@@ -53,6 +53,48 @@ export async function ensureFirebaseAuth() {
   }
 
   if (services.auth.currentUser) return services.auth.currentUser;
-  authPromise ||= signInAnonymously(services.auth).then((credential) => credential.user);
+  throw new Error("กรุณาเข้าสู่ระบบก่อนใช้งาน");
+}
+
+export function getLoginUsername() {
+  return import.meta.env.VITE_LOGIN_USERNAME || "packing";
+}
+
+export function hasFirebaseLoginConfig() {
+  return Boolean(import.meta.env.VITE_LOGIN_EMAIL);
+}
+
+export function subscribeFirebaseUser(callback) {
+  const services = getFirebaseServices();
+  if (!services.enabled) {
+    callback(null);
+    return () => {};
+  }
+  return onAuthStateChanged(services.auth, callback);
+}
+
+export async function signInFirebaseUser(username, password) {
+  const services = getFirebaseServices();
+  if (!services.enabled) {
+    throw new Error("Firebase is not configured. Add VITE_FIREBASE_* env values first.");
+  }
+
+  const expectedUsername = getLoginUsername();
+  if (String(username || "").trim() !== expectedUsername) {
+    throw new Error("Username หรือ password ไม่ถูกต้อง");
+  }
+
+  const email = import.meta.env.VITE_LOGIN_EMAIL;
+  if (!email) {
+    throw new Error("ยังไม่ได้ตั้งค่า VITE_LOGIN_EMAIL สำหรับล็อกอิน");
+  }
+
+  authPromise = signInWithEmailAndPassword(services.auth, email, password).then((credential) => credential.user);
   return authPromise;
+}
+
+export async function signOutFirebaseUser() {
+  const services = getFirebaseServices();
+  authPromise = null;
+  if (services.auth) await signOut(services.auth);
 }

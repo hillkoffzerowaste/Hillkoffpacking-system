@@ -29,6 +29,52 @@ button {
   cursor: pointer;
 }
 
+.loginShell {
+  align-items: center;
+  background: #eef2ed;
+  display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 18px;
+}
+
+.loginPanel {
+  background: #fff;
+  border: 1px solid #dce4d8;
+  border-radius: 8px;
+  box-shadow: 0 18px 42px rgba(21, 59, 47, 0.14);
+  display: grid;
+  gap: 16px;
+  margin: 0 auto;
+  max-width: 380px;
+  padding: 24px;
+  width: 100%;
+}
+
+.loginBrand {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+  margin-bottom: 6px;
+}
+
+.loginBrand svg {
+  color: #2b8a67;
+}
+
+.loginBrand span {
+  color: #2b8a67;
+  font-size: 13px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.loginBrand h1 {
+  font-size: 26px;
+  line-height: 1.1;
+  margin: 0;
+}
+
 .appShell {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);

@@ -11,6 +11,8 @@ import {
   Copy,
   FileClock,
   LayoutDashboard,
+  LockKeyhole,
+  LogOut,
   PackageCheck,
   Plus,
   RefreshCw,
@@ -53,6 +55,7 @@ import {
   scanFirebaseSku,
   getFirebaseOrder
 } from "./lib/firebaseAdapter";
+import { getLoginUsername, hasFirebaseLoginConfig, signInFirebaseUser, signOutFirebaseUser, subscribeFirebaseUser } from "./lib/firebase";
 import "./styles.css";
 
 const IS_NATIVE_WEBVIEW = Boolean(window.Capacitor?.isNativePlatform?.() || window.Capacitor?.getPlatform?.() === "android");
@@ -2946,6 +2949,39 @@ function EmptyState({ label }) {
   return <div className="emptyState"><Boxes size={28} />{hasBrokenThai(label) ? "ยังไม่มีข้อมูล" : label}</div>;
 }
 
+function LoginPage({ onLogin, error, busy }) {
+  const [username, setUsername] = useState(getLoginUsername());
+  const [password, setPassword] = useState("");
+
+  function submit(event) {
+    event.preventDefault();
+    onLogin(username, password);
+  }
+
+  return (
+    <div className="loginShell">
+      <form className="loginPanel" onSubmit={submit}>
+        <div className="loginBrand">
+          <LockKeyhole size={34} />
+          <span>Hillkoff</span>
+          <h1>ระบบแพ็คสินค้า</h1>
+        </div>
+        <label>Username
+          <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
+        </label>
+        <label>Password
+          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" autoFocus />
+        </label>
+        <button className="primary" disabled={busy || !username || !password}>
+          <LockKeyhole size={18} />เข้าสู่ระบบ
+        </button>
+        {!hasFirebaseLoginConfig() && <Alert type="error">ยังไม่ได้ตั้งค่า VITE_LOGIN_EMAIL สำหรับระบบล็อกอิน</Alert>}
+        {error && <Alert type="error">{error}</Alert>}
+      </form>
+    </div>
+  );
+}
+
 function App() {
   const [activePage, setActivePage] = useState("dashboard");
   const [summary, setSummary] = useState(null);
@@ -2953,6 +2989,9 @@ function App() {
   const [apiError, setApiError] = useState("");
   const [busy, setBusy] = useState(false);
   const [packingLookup, setPackingLookup] = useState("");
+  const [authReady, setAuthReady] = useState(DATA_MODE !== "firebase");
+  const [currentUser, setCurrentUser] = useState(DATA_MODE === "firebase" ? null : { local: true });
+  const [loginError, setLoginError] = useState("");
 
   async function refresh() {
     try {
@@ -2982,8 +3021,45 @@ function App() {
   }
 
   useEffect(() => {
-    refresh();
+    if (DATA_MODE !== "firebase") return undefined;
+    return subscribeFirebaseUser((user) => {
+      setCurrentUser(user);
+      setAuthReady(true);
+      if (!user) {
+        setSummary(null);
+        setReadyOrders([]);
+      }
+    });
   }, []);
+
+  useEffect(() => {
+    if (authReady && currentUser) refresh();
+  }, [authReady, currentUser]);
+
+  async function login(username, password) {
+    setBusy(true);
+    setLoginError("");
+    try {
+      await signInFirebaseUser(username, password);
+    } catch (err) {
+      setLoginError(err.message || "เข้าสู่ระบบไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function logout() {
+    setBusy(true);
+    try {
+      await signOutFirebaseUser();
+      setApiError("");
+      setActivePage("dashboard");
+    } catch (err) {
+      setApiError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function reloadAppVersion() {
     try {
@@ -3001,6 +3077,24 @@ function App() {
     const url = new URL(window.location.href);
     url.searchParams.set("app_refresh", String(Date.now()));
     window.location.replace(url.toString());
+  }
+
+  if (!authReady) {
+    return (
+      <div className="loginShell">
+        <div className="loginPanel">
+          <div className="loginBrand">
+            <LockKeyhole size={34} />
+            <span>Hillkoff</span>
+            <h1>กำลังตรวจสอบสิทธิ์</h1>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return <LoginPage onLogin={login} error={loginError} busy={busy} />;
   }
 
   const page = {
@@ -3051,6 +3145,9 @@ function App() {
               <button className="secondary" onClick={reloadAppVersion}><RefreshCw size={18} />อัปเดตหน้าเว็บ</button>
             )}
             <button className="secondary" onClick={refresh}><RefreshCw size={18} />รีเฟรช</button>
+            {DATA_MODE === "firebase" && (
+              <button className="secondary" onClick={logout}><LogOut size={18} />ออกจากระบบ</button>
+            )}
           </div>
         </header>
         {apiError && <Alert type="error">Backend: {apiError}</Alert>}
