@@ -1244,7 +1244,7 @@ function DashboardPage({ summary, readyOrders }) {
   );
 }
 
-function ImportPage({ onRefresh }) {
+function ImportPage({ onRefresh, refreshKey }) {
   const [detectedChannel, setDetectedChannel] = useState("");
   const [dedupe, setDedupe] = useState("ignore");
   const [file, setFile] = useState(null);
@@ -1271,7 +1271,7 @@ function ImportPage({ onRefresh }) {
 
   useEffect(() => {
     loadBatches().catch(() => setBatches([]));
-  }, []);
+  }, [refreshKey]);
 
   function selectFile(nextFile) {
     setFile(nextFile);
@@ -1436,7 +1436,7 @@ function ImportPage({ onRefresh }) {
   );
 }
 
-function NewOrderPage({ onRefresh, onGoPacking }) {
+function NewOrderPage({ onRefresh, onGoPacking, refreshKey }) {
   const emptyItem = { sku: "", product_name: "", quantity_required: 1 };
   const [providers, setProviders] = useState([]);
   const [form, setForm] = useState({
@@ -1459,7 +1459,7 @@ function NewOrderPage({ onRefresh, onGoPacking }) {
       .then((data) => setProviders(data.shipping_providers))
       .catch(() => setProviders([]));
     orderInputRef.current?.focus();
-  }, []);
+  }, [refreshKey]);
 
   function updateItem(index, patch) {
     setForm((current) => ({
@@ -1986,7 +1986,7 @@ function DispatchChannelChart({ items, total }) {
   );
 }
 
-function SalesDispatchPage() {
+function SalesDispatchPage({ refreshKey }) {
   const [lookup, setLookup] = useState("");
   const [date, setDate] = useState(todayKey());
   const [month, setMonth] = useState(monthKey());
@@ -2007,9 +2007,14 @@ function SalesDispatchPage() {
     setMonthScans(data.scans || []);
   }
 
+  async function refreshSalesDispatch() {
+    setError("");
+    await Promise.all([loadScans(), loadMonthScans()]);
+  }
+
   useEffect(() => {
-    Promise.all([loadScans(), loadMonthScans()]).catch((err) => setError(err.message));
-  }, []);
+    refreshSalesDispatch().catch((err) => setError(err.message));
+  }, [refreshKey]);
 
   const channelSummary = useMemo(() => {
     return Object.values(scans.reduce((acc, scan) => {
@@ -2144,7 +2149,7 @@ function SalesDispatchPage() {
         icon={Archive}
         title="Sales Dispatch Sheet"
         subtitle="สแกนใบปะหน้าสำหรับฝ่ายขาย แล้วส่งออกเป็นรายงานประจำวัน"
-        action={<button type="button" className="secondary" onClick={() => Promise.all([loadScans(), loadMonthScans()])}><RefreshCw size={18} />รีเฟรช</button>}
+        action={<button type="button" className="secondary" onClick={() => refreshSalesDispatch().catch((err) => setError(err.message))}><RefreshCw size={18} />รีเฟรช</button>}
       />
 
       <section className="salesScannerPanel">
@@ -2347,7 +2352,7 @@ async function copyTextToClipboard(text) {
   document.body.removeChild(textarea);
 }
 
-function ExecutiveReportsPage() {
+function ExecutiveReportsPage({ refreshKey }) {
   const [date, setDate] = useState(todayKey());
   const [month, setMonth] = useState(monthKey());
   const [scope, setScope] = useState("daily");
@@ -2380,7 +2385,7 @@ function ExecutiveReportsPage() {
 
   useEffect(() => {
     loadReport().catch((err) => setError(err.message));
-  }, []);
+  }, [refreshKey]);
 
   const shippedOrders = orders.filter((order) => order.status === "Shipped / Handed Over");
   const packedOrders = orders.filter((order) => ["Packed", "Verified", "Shipped / Handed Over"].includes(order.status));
@@ -2540,7 +2545,7 @@ function mapSkuImportRows(rows) {
   })).filter((row) => row.barcode && row.sku);
 }
 
-function SkuDatabasePage() {
+function SkuDatabasePage({ refreshKey }) {
   const [items, setItems] = useState([]);
   const [file, setFile] = useState(null);
   const [conflicts, setConflicts] = useState([]);
@@ -2555,7 +2560,7 @@ function SkuDatabasePage() {
 
   useEffect(() => {
     loadItems().catch((err) => setError(err.message));
-  }, []);
+  }, [refreshKey]);
 
   async function importSkuFile(event) {
     event.preventDefault();
@@ -2589,7 +2594,7 @@ function SkuDatabasePage() {
         icon={Barcode}
         title="SKU Database"
         subtitle="เก็บฐานข้อมูลบาร์โค้ดสินค้าไว้ใช้ตรวจ SKU และนำเข้าไฟล์ SKU ในอนาคต"
-        action={<button type="button" className="secondary" onClick={loadItems}><RefreshCw size={18} />รีเฟรช</button>}
+        action={<button type="button" className="secondary" onClick={() => loadItems().catch((err) => setError(err.message))}><RefreshCw size={18} />รีเฟรช</button>}
       />
       <section className="panel">
         <div className="panelHeader"><Upload size={20} /><h3>นำเข้าไฟล์ SKU</h3></div>
@@ -2625,7 +2630,7 @@ function SkuDatabasePage() {
   );
 }
 
-function OrdersPage({ onRefresh }) {
+function OrdersPage({ onRefresh, refreshKey }) {
   const [orders, setOrders] = useState([]);
   const [filters, setFilters] = useState({ q: "", status: "", channel: "", date: "", month: "" });
   const [selected, setSelected] = useState(null);
@@ -2641,7 +2646,7 @@ function OrdersPage({ onRefresh }) {
 
   useEffect(() => {
     loadOrders().catch(() => setOrders([]));
-  }, []);
+  }, [refreshKey]);
 
   async function applyFilters(event) {
     event.preventDefault();
@@ -2746,7 +2751,7 @@ function OrdersPage({ onRefresh }) {
   );
 }
 
-function AuditPage() {
+function AuditPage({ refreshKey }) {
   const [events, setEvents] = useState([]);
   const [filters, setFilters] = useState({ date: todayKey(), month: "" });
 
@@ -2761,7 +2766,7 @@ function AuditPage() {
 
   useEffect(() => {
     loadEvents().catch(() => setEvents([]));
-  }, []);
+  }, [refreshKey]);
 
   return (
     <div className="pageStack">
@@ -2809,7 +2814,7 @@ function AuditPage() {
   );
 }
 
-function SettingsPage({ onRefresh }) {
+function SettingsPage({ onRefresh, refreshKey }) {
   const [packers, setPackers] = useState([]);
   const [providers, setProviders] = useState([]);
   const [packerForm, setPackerForm] = useState({ employee_code: "", barcode: "", display_name: "" });
@@ -2828,7 +2833,7 @@ function SettingsPage({ onRefresh }) {
 
   useEffect(() => {
     loadSettings().catch(() => {});
-  }, []);
+  }, [refreshKey]);
 
   async function addPacker(event) {
     event.preventDefault();
@@ -2955,6 +2960,7 @@ function App() {
   const [authReady, setAuthReady] = useState(DATA_MODE !== "firebase");
   const [currentUser, setCurrentUser] = useState(DATA_MODE === "firebase" ? null : { local: true });
   const [loginError, setLoginError] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
 
   async function refresh() {
     try {
@@ -2965,6 +2971,7 @@ function App() {
       setSummary(summaryData);
       setReadyOrders(readyData.orders);
       setApiError("");
+      setRefreshKey((key) => key + 1);
     } catch (err) {
       setApiError(err.message);
     }
@@ -3049,19 +3056,19 @@ function App() {
 
   const page = {
     dashboard: <DashboardPage summary={summary} readyOrders={readyOrders} />,
-    "new-order": <NewOrderPage onRefresh={refresh} onGoPacking={(trackingId) => {
+    "new-order": <NewOrderPage onRefresh={refresh} refreshKey={refreshKey} onGoPacking={(trackingId) => {
       setPackingLookup(trackingId);
       setActivePage("packing");
     }} />,
-    import: <ImportPage onRefresh={refresh} />,
+    import: <ImportPage onRefresh={refresh} refreshKey={refreshKey} />,
     packing: <PackingPage readyOrders={readyOrders} onRefresh={refresh} initialLookup={packingLookup} />,
     dispatch: <DispatchPage onRefresh={refresh} />,
-    sales: <SalesDispatchPage />,
-    reports: <ExecutiveReportsPage />,
-    sku: <SkuDatabasePage />,
-    orders: <OrdersPage onRefresh={refresh} />,
-    audit: <AuditPage />,
-    settings: <SettingsPage onRefresh={refresh} />
+    sales: <SalesDispatchPage refreshKey={refreshKey} />,
+    reports: <ExecutiveReportsPage refreshKey={refreshKey} />,
+    sku: <SkuDatabasePage refreshKey={refreshKey} />,
+    orders: <OrdersPage onRefresh={refresh} refreshKey={refreshKey} />,
+    audit: <AuditPage refreshKey={refreshKey} />,
+    settings: <SettingsPage onRefresh={refresh} refreshKey={refreshKey} />
   }[activePage];
 
   return (
