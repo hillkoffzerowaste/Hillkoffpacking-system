@@ -421,16 +421,18 @@ router.post("/packing/orders/lookup", (req, res) => {
 router.post("/packing/orders/:id/scan-item", (req, res) => {
   const order = getOrderDetail(req.params.id);
   const scannedSku = String(req.body.scanned_sku || "").trim();
-  const scanQuantity = Number(req.body.quantity || 1);
+  const rawQuantity = Number(req.body.quantity || 1);
   const packerId = req.body.packer_id || null;
 
-  if (!order) {
-    res.status(404).json({ code: "ORDER_NOT_FOUND", message: "Order not found." });
+  if (!Number.isFinite(rawQuantity) || rawQuantity < 1 || !Number.isInteger(rawQuantity)) {
+    res.status(400).json({ result: "error", code: "INVALID_QUANTITY", message: "Scan quantity must be a positive whole number." });
     return;
   }
 
-  if (!Number.isInteger(scanQuantity) || scanQuantity < 1) {
-    res.status(400).json({ result: "error", code: "INVALID_QUANTITY", message: "Scan quantity must be at least 1." });
+  const scanQuantity = rawQuantity;
+
+  if (!order) {
+    res.status(404).json({ code: "ORDER_NOT_FOUND", message: "Order not found." });
     return;
   }
 
@@ -618,6 +620,7 @@ router.post("/dispatch/final-scan", (req, res) => {
   }
 
   const now = nowIso();
+  const duplicateDispatch = order.status === "Shipped / Handed Over" || !!order.shipped_at;
   db.prepare(`
     update orders
     set status = 'Shipped / Handed Over',
@@ -642,7 +645,8 @@ router.post("/dispatch/final-scan", (req, res) => {
       display_name: order.shipping_provider || "ไม่ระบุขนส่ง"
     },
     shipping_option: order.shipping_option || null,
-    shipped_at: now
+    shipped_at: now,
+    duplicate: duplicateDispatch
   });
 });
 
@@ -659,8 +663,9 @@ router.get("/scan-events", (_req, res) => {
 });
 
 router.use((err, _req, res, _next) => {
-  res.status(400).json({
-    code: "REQUEST_FAILED",
+  const status = err.status || (err.message?.includes("SQLITE") ? 500 : 400);
+  res.status(status).json({
+    code: status >= 500 ? "INTERNAL_ERROR" : "REQUEST_FAILED",
     message: err.message || "Request failed."
   });
 });

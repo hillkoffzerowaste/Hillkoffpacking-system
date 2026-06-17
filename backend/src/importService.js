@@ -3,6 +3,10 @@ import { db, nowIso } from "./db.js";
 import { findProviderByCode } from "./repositories.js";
 import { mapImportRow, validateMappedOrder } from "./importMapping.js";
 
+function sameSku(left, right) {
+  return String(left || "").trim().toUpperCase() === String(right || "").trim().toUpperCase();
+}
+
 function findDuplicate(mapped) {
   return db.prepare(`
     select * from orders
@@ -98,7 +102,7 @@ function aggregateMappedOrders(mappedRows) {
     existing.shippingProviderCode ||= mapped.shippingProviderCode;
     existing.shippingOption ||= mapped.shippingOption;
     if (mapped.trackingId && mapped.trackingId !== mapped.orderKey) existing.trackingId = mapped.trackingId;
-    const existingItem = existing.items.find((candidate) => candidate.sku === item.sku);
+    const existingItem = existing.items.find((candidate) => sameSku(candidate.sku, item.sku));
     if (existingItem) {
       existingItem.productName = item.productName || existingItem.productName;
       existingItem.quantityRequired += item.quantityRequired;

@@ -118,6 +118,8 @@ export function migrate() {
       foreign key (order_item_id) references order_items(id),
       foreign key (packer_id) references packers(id)
     );
+
+    create index if not exists idx_scan_events_created_at on scan_events(created_at);
   `);
 
   const orderColumns = db.prepare("pragma table_info(orders)").all().map((column) => column.name);

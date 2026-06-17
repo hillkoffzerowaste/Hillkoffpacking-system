@@ -44,8 +44,6 @@ export function getFirebaseServices() {
   };
 }
 
-let authPromise;
-
 export async function ensureFirebaseAuth() {
   const services = getFirebaseServices();
   if (!services.enabled) {
@@ -89,12 +87,10 @@ export async function signInFirebaseUser(username, password) {
     throw new Error("ยังไม่ได้ตั้งค่า VITE_LOGIN_EMAIL สำหรับล็อกอิน");
   }
 
-  authPromise = signInWithEmailAndPassword(services.auth, email, password).then((credential) => credential.user);
-  return authPromise;
+  return signInWithEmailAndPassword(services.auth, email, password).then((credential) => credential.user);
 }
 
 export async function signOutFirebaseUser() {
   const services = getFirebaseServices();
-  authPromise = null;
   if (services.auth) await signOut(services.auth);
 }
