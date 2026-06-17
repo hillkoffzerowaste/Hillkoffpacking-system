@@ -2962,6 +2962,12 @@ function App() {
   const [currentUser, setCurrentUser] = useState(DATA_MODE === "firebase" ? null : { local: true });
   const [loginError, setLoginError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem("hillkoff-dark-mode") === "true");
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", darkMode);
+    localStorage.setItem("hillkoff-dark-mode", darkMode ? "true" : "false");
+  }, [darkMode]);
 
   async function refresh() {
     try {
@@ -3090,6 +3096,11 @@ function App() {
             );
           })}
         </nav>
+        <div style={{ borderTop: "1px solid rgba(255,255,255,0.16)", marginTop: "auto", paddingTop: "16px" }}>
+          <button type="button" className="sidebarDarkToggle" onClick={() => setDarkMode((prev) => !prev)}>
+            {darkMode ? "☀️ โหมดสว่าง" : "🌙 โหมดมืด"}
+          </button>
+        </div>
       </aside>
 
       <main className="workspace">
