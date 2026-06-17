@@ -479,7 +479,8 @@ async function listFirebaseOverdueOrders() {
     console.warn("Overdue order query skipped.", error);
     return { docs: [] };
   });
-  return decorateFirebaseOrders(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))
+  const orders = await decorateFirebaseOrders(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })));
+  return orders
     .filter((order) => ACTIVE_ORDER_STATUSES.includes(order.status))
     .filter((order) => String(order.ready_to_pack_at || order.imported_at || order.created_at || "") < cutoff)
     .map((order) => {
