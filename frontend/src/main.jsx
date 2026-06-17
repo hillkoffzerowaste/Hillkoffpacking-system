@@ -844,7 +844,6 @@ async function localApi(path, options = {}) {
       scanned_sku: scannedSku,
       product_name: item.product_name,
       mapped_barcode: !!resolved.mappedBarcode,
-      new_barcode_mapping: !!resolved.newMapping,
       quantity_added: scanQuantity,
       quantity_scanned: item.quantity_scanned,
       quantity_required: item.quantity_required,
@@ -2556,7 +2555,6 @@ function mapSkuImportRows(rows) {
 }
 
 function SkuDatabasePage() {
-  const items = [];
   const [file, setFile] = useState(null);
   const [conflicts, setConflicts] = useState([]);
   const [message, setMessage] = useState("");
@@ -2612,18 +2610,8 @@ function SkuDatabasePage() {
         )}
       </section>
       <section className="panel">
-        <div className="panelHeader"><Barcode size={20} /><h3>ฐานข้อมูลบาร์โค้ด / SKU</h3></div>
-        <DataTable
-          columns={["บาร์โค้ด", "SKU", "สินค้า", "สแกน", "อัพเดท"]}
-          rows={items.map((item) => [
-            item.barcode,
-            item.sku,
-            item.product_name || "-",
-            item.scan_count || 0,
-            formatDate(item.updated_at)
-          ])}
-          empty="ยังไม่มีข้อมูล SKU"
-        />
+        <div className="panelHeader"><Barcode size={20} /><h3>ฐานข้อมูล SKU พร้อมใช้งาน</h3></div>
+        <EmptyState label="ข้อมูล SKU ถูกเก็บไว้ใน Firebase แล้ว หน้านี้ไม่แสดงรายการทั้งหมดเพื่อให้หน้าใช้งานเร็วและไม่รก" />
       </section>
     </div>
   );

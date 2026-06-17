@@ -631,7 +631,6 @@ export async function scanFirebaseSku(orderId, scannedSku, packerId, quantity = 
     scanned_sku: scannedSku,
     product_name: nextItem.product_name,
     mapped_barcode: !!resolved.mappedBarcode,
-    new_barcode_mapping: !!resolved.newMapping,
     quantity_added: scanQuantity,
     quantity_scanned: nextItem.quantity_scanned,
     quantity_required: nextItem.quantity_required,

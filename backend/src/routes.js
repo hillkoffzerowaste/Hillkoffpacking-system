@@ -507,7 +507,6 @@ router.post("/packing/orders/:id/scan-item", (req, res) => {
     scanned_sku: scannedSku,
     product_name: item.product_name,
     mapped_barcode: !!resolved.mappedBarcode,
-    new_barcode_mapping: !!resolved.newMapping,
     quantity_added: scanQuantity,
     quantity_scanned: nextQty,
     quantity_required: item.quantity_required,
