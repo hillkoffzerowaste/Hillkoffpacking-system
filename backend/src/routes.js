@@ -50,7 +50,7 @@ function resolveScannedOrderItem(order, scannedSku) {
     return { error: "SKU_NOT_IN_ORDER", message: "Barcode is linked to a SKU that is not in this order." };
   }
 
-  // When only 1 remaining item, offer auto-map suggestion (consistent with Firebase/Local modes)
+  // When only 1 remaining item, offer a manual mapping suggestion across all modes.
   const remainingItems = order.items.filter((candidate) => candidate.quantity_scanned < candidate.quantity_required);
   const candidates = remainingItems.length ? remainingItems : order.items;
   if (candidates.length === 1) {

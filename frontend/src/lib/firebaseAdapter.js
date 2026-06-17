@@ -257,8 +257,8 @@ function skuConflictError({ barcode, savedMapping, candidate }) {
   error.code = "sku_conflict";
   error.conflict = {
     barcode,
-    existing_sku: savedMapping.sku,
-    existing_product_name: savedMapping.product_name || null,
+    existing_sku: savedMapping?.sku || "",
+    existing_product_name: savedMapping?.product_name || null,
     suggested_sku: candidate.sku,
     suggested_product_name: candidate.product_name || null
   };
@@ -287,6 +287,12 @@ async function resolveFirebaseScannedOrderItem(order, scannedSku) {
       return { conflict: { barcode, savedMapping, candidate: candidates[0] } };
     }
     return { error: "Barcode is linked to a SKU that is not in this order." };
+  }
+
+  const remainingItems = order.items.filter((candidate) => candidate.quantity_scanned < candidate.quantity_required);
+  const candidates = remainingItems.length ? remainingItems : order.items;
+  if (candidates.length === 1) {
+    return { conflict: { barcode, savedMapping: null, candidate: candidates[0] } };
   }
 
   return { error: "Barcode is not linked to a SKU yet." };

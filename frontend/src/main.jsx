@@ -513,8 +513,8 @@ function skuConflictError({ barcode, savedMapping, candidate }) {
   error.code = "sku_conflict";
   error.conflict = {
     barcode,
-    existing_sku: savedMapping.sku,
-    existing_product_name: savedMapping.product_name || null,
+    existing_sku: savedMapping?.sku || "",
+    existing_product_name: savedMapping?.product_name || null,
     suggested_sku: candidate.sku,
     suggested_product_name: candidate.product_name || null
   };
@@ -542,6 +542,12 @@ function resolveLocalScannedOrderItem(db, order, scannedSku) {
       return { conflict: { barcode, savedMapping, candidate: candidates[0] } };
     }
     return { error: "Barcode is linked to a SKU that is not in this order." };
+  }
+
+  const remainingItems = order.items.filter((candidate) => candidate.quantity_scanned < candidate.quantity_required);
+  const candidates = remainingItems.length ? remainingItems : order.items;
+  if (candidates.length === 1) {
+    return { conflict: { barcode, savedMapping: null, candidate: candidates[0] } };
   }
 
   return { error: "Barcode is not linked to a SKU yet." };
@@ -1732,6 +1738,7 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
     setMessage("");
     try {
       if (!useSuggested) {
+        const hasExistingSku = Boolean(skuConflict.existing_sku);
         await api("/product-barcodes/conflict-resolution", {
           method: "POST",
           body: JSON.stringify({
@@ -1739,10 +1746,12 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
             barcode: skuConflict.barcode,
             kept_sku: skuConflict.existing_sku,
             suggested_sku: skuConflict.suggested_sku,
-            action: "keep_existing"
+            action: hasExistingSku ? "keep_existing" : "dismiss_unmapped"
           })
         });
-        setMessage(`ยืนยันให้บาร์โค้ด ${skuConflict.barcode} ใช้ SKU เดิม: ${skuConflict.existing_sku}`);
+        setMessage(hasExistingSku
+          ? `ยืนยันให้บาร์โค้ด ${skuConflict.barcode} ใช้ SKU เดิม: ${skuConflict.existing_sku}`
+          : `ยกเลิกการผูกบาร์โค้ด ${skuConflict.barcode} กับ SKU ${skuConflict.suggested_sku}`);
         setSkuConflict(null);
         setSku("");
         setTimeout(() => skuRef.current?.focus(), 0);
@@ -1881,11 +1890,19 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
             <div className="skuConflictBox">
               <div>
                 <strong>ตรวจพบข้อมูล SKU ไม่ตรงกัน</strong>
-                <span>บาร์โค้ด {skuConflict.barcode} เคยบันทึกเป็น {skuConflict.existing_sku} แต่ในออเดอร์นี้ระบบพบ {skuConflict.suggested_sku}</span>
+                <span>
+                  {skuConflict.existing_sku
+                    ? <>บาร์โค้ด {skuConflict.barcode} เคยบันทึกเป็น {skuConflict.existing_sku} แต่ในออเดอร์นี้ระบบพบ {skuConflict.suggested_sku}</>
+                    : <>บาร์โค้ด {skuConflict.barcode} ยังไม่อยู่ในฐาน SKU ระบบพบว่าออเดอร์นี้เหลือ {skuConflict.suggested_sku} กรุณายืนยันก่อนบันทึกเข้าฐาน</>}
+                </span>
               </div>
               <div className="toolbarActions">
-                <button type="button" className="secondary" onClick={() => resolveSkuConflict(false)}>ใช้ SKU เดิม</button>
-                <button type="button" className="primary" onClick={() => resolveSkuConflict(true)}>เปลี่ยนเป็น SKU นี้</button>
+                <button type="button" className="secondary" onClick={() => resolveSkuConflict(false)}>
+                  {skuConflict.existing_sku ? "ใช้ SKU เดิม" : "ไม่ใช่ SKU นี้"}
+                </button>
+                <button type="button" className="primary" onClick={() => resolveSkuConflict(true)}>
+                  {skuConflict.existing_sku ? "เปลี่ยนเป็น SKU นี้" : "ยืนยัน SKU นี้"}
+                </button>
               </div>
             </div>
           )}
