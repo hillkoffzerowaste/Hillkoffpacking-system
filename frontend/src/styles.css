@@ -1520,6 +1520,30 @@ dd {
   background: rgba(255, 255, 255, 0.14);
 }
 
+.qtyStepper {
+  align-items: center;
+  background: var(--color-primary);
+  border-radius: 5px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 16px;
+  font-weight: 900;
+  height: 36px;
+  justify-content: center;
+  min-height: 36px;
+  min-width: 36px;
+  padding: 0;
+  width: 36px;
+}
+
+.qtyStepper:disabled {
+  opacity: 0.4;
+}
+
+.qtyStepper:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
 /* ====== History Timeline ====== */
 .historyTimeline {
   display: grid;

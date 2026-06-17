@@ -926,6 +926,21 @@ function playErrorSound() {
   oscillator.stop(context.currentTime + 0.18);
 }
 
+function playSuccessSound() {
+  try {
+    const context = new AudioContext();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.value = 880;
+    gain.gain.value = 0.05;
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.08);
+  } catch (_) {}
+}
+
 function formatDate(value) {
   if (!value) return "-";
   return new Intl.DateTimeFormat("th-TH", {
@@ -1625,7 +1640,12 @@ function NewOrderPage({ onRefresh, onGoPacking, refreshKey }) {
 function PackingPage({ onRefresh, readyOrders, initialLookup }) {
   const [lookup, setLookup] = useState("");
   const [sku, setSku] = useState("");
-  const [scanQuantity, setScanQuantity] = useState(1);
+  const [scanQuantity, setScanQuantity] = useState(() => {
+    try { return Number(localStorage.getItem("hillkoff-default-scan-qty")) || 1; } catch (_) { return 1; }
+  });
+  const [continuousScan, setContinuousScan] = useState(() => {
+    try { return localStorage.getItem("hillkoff-continuous-scan") === "true"; } catch (_) { return false; }
+  });
   const [order, setOrder] = useState(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -1675,11 +1695,17 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
         body: JSON.stringify({ scanned_sku: nextSku, quantity: scanQuantity, packer_id: null })
       });
       setOrder(data.order);
+      playSuccessSound();
       setMessage(`Scanned ${data.sku}: +${data.quantity_added || scanQuantity} => ${data.quantity_scanned}/${data.quantity_required}`);
-      setSku("");
-      setScanQuantity(1);
+      if (continuousScan) {
+        setSku("");
+        setTimeout(() => skuRef.current?.focus(), 50);
+      } else {
+        setSku("");
+        setScanQuantity(Number(localStorage.getItem("hillkoff-default-scan-qty")) || 1);
+        setTimeout(() => skuRef.current?.focus(), 0);
+      }
       await onRefresh();
-      setTimeout(() => skuRef.current?.focus(), 0);
     } catch (err) {
       if (err.code === "sku_conflict" && err.conflict) {
         setSkuConflict({ ...err.conflict, scanned_value: nextSku });
@@ -1799,12 +1825,26 @@ function PackingPage({ onRefresh, readyOrders, initialLookup }) {
                 <div><span>ความคืบหน้า</span><strong>{progress}%</strong></div>
                 <div><span>สถานะ</span><StatusBadge status={order.status} /></div>
               </div>
+              <div className="scanHelperBar">
+                <span><Barcode size={18} />โหมดสแกน</span>
+                <label style={{ alignItems: "center", color: "inherit", display: "inline-flex", flexDirection: "row", fontSize: "12px", gap: "6px", fontWeight: 800, margin: 0 }}>
+                  <input type="checkbox" checked={continuousScan} onChange={(event) => {
+                    setContinuousScan(event.target.checked);
+                    localStorage.setItem("hillkoff-continuous-scan", event.target.checked ? "true" : "false");
+                  }} style={{ minHeight: "auto", width: "auto" }} />
+                  สแกนต่อเนื่อง
+                </label>
+              </div>
               <form className="scanForm" onSubmit={scanSku}>
                 <label>สแกน SKU สินค้า
                   <input ref={skuRef} value={sku} onChange={(event) => setSku(event.target.value)} placeholder="ยิง barcode สินค้า" />
                 </label>
                 <label className="quantityField">จำนวน
-                  <input type="number" min="1" step="1" value={scanQuantity} onChange={(event) => setScanQuantity(event.target.value)} />
+                  <div style={{ alignItems: "center", display: "flex", gap: "4px" }}>
+                    <button type="button" className="qtyStepper" onClick={() => setScanQuantity((q) => Math.max(1, q - 1))} disabled={scanQuantity <= 1}>−</button>
+                    <input type="number" min="1" step="1" value={scanQuantity} onChange={(event) => setScanQuantity(event.target.value)} style={{ textAlign: "center", width: "60px" }} />
+                    <button type="button" className="qtyStepper" onClick={() => setScanQuantity((q) => q + 1)}>+</button>
+                  </div>
                 </label>
                 <button className="primary"><Barcode size={18} />สแกน</button>
                 <button type="button" className="scanModeButton camera" onClick={() => setCameraTarget({ title: "ใช้กล้องสแกน SKU", profile: "product", apply: submitSku })}><Camera size={18} />แสกนกล้อง SKU</button>
@@ -2820,6 +2860,9 @@ function SettingsPage({ onRefresh, refreshKey }) {
   const [providers, setProviders] = useState([]);
   const [packerForm, setPackerForm] = useState({ employee_code: "", barcode: "", display_name: "" });
   const [providerForm, setProviderForm] = useState({ code: "", name: "", display_name: "" });
+  const [defaultScanQty, setDefaultScanQty] = useState(() => {
+    try { return Number(localStorage.getItem("hillkoff-default-scan-qty")) || 1; } catch (_) { return 1; }
+  });
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -2887,6 +2930,21 @@ function SettingsPage({ onRefresh, refreshKey }) {
           </form>
           <DataTable columns={["รหัส", "ชื่อ", "ชื่อที่แสดง"]} rows={providers.map((item) => [item.code, item.name, item.display_name])} empty="ยังไม่มีขนส่ง" />
         </section>
+      </div>
+      <div className="panel panelHeader">
+        <h3>การตั้งค่าการสแกน</h3>
+      </div>
+      <div className="panel">
+        <label>จำนวนเริ่มต้นตอนสแกน (ใช้ในหน้า Packing)
+          <div style={{ alignItems: "center", display: "flex", gap: "8px" }}>
+            <input type="number" min="1" max="999" value={defaultScanQty} onChange={(event) => {
+              const qty = Math.max(1, Number(event.target.value) || 1);
+              setDefaultScanQty(qty);
+              localStorage.setItem("hillkoff-default-scan-qty", String(qty));
+            }} style={{ maxWidth: "100px" }} />
+            <span style={{ color: "var(--color-muted)", fontSize: "13px", fontWeight: 800 }}>ชิ้น (ค่าเริ่มต้น 1)</span>
+          </div>
+        </label>
       </div>
       {message && <Alert>{message}</Alert>}
       {error && <Alert type="error">{error}</Alert>}
