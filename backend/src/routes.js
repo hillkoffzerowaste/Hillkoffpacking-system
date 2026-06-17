@@ -29,6 +29,9 @@ function sameSku(left, right) {
   return String(left || "").trim().toUpperCase() === String(right || "").trim().toUpperCase();
 }
 
+const ACTIVE_ORDER_STATUSES = ["Ready to Pack", "Packing In Progress", "Scan Completed", "Verified", "Packed"];
+const OVERDUE_MS = 24 * 60 * 60 * 1000;
+
 function resolveScannedOrderItem(order, scannedSku) {
   const directItem = order.items.find((candidate) => sameSku(candidate.sku, scannedSku));
   if (directItem) return { item: directItem, mappedBarcode: false };
@@ -63,6 +66,7 @@ router.get("/reference/shipping-providers", (_req, res) => {
 });
 
 router.get("/dashboard/summary", (_req, res) => {
+  const overdueCutoff = new Date(Date.now() - OVERDUE_MS).toISOString();
   const statusRows = db.prepare(`
     select status, count(*) as count
     from orders
@@ -85,6 +89,18 @@ router.get("/dashboard/summary", (_req, res) => {
   const errorScansToday = db.prepare("select count(*) as count from scan_events where result = 'error' and created_at like ?").get(`${today}%`).count;
   const readyCount = db.prepare("select count(*) as count from orders where status = 'Ready to Pack'").get().count;
   const inProgressCount = db.prepare("select count(*) as count from orders where status = 'Packing In Progress'").get().count;
+  const overdueOrders = db.prepare(`
+    select o.*, sp.display_name as shipping_provider
+    from orders o
+    left join shipping_providers sp on sp.id = o.shipping_provider_id
+    where o.status in ('Ready to Pack', 'Packing In Progress', 'Scan Completed', 'Verified', 'Packed')
+      and coalesce(o.ready_to_pack_at, o.imported_at, o.created_at) < @overdueCutoff
+    order by coalesce(o.ready_to_pack_at, o.imported_at, o.created_at) asc
+  `).all({ overdueCutoff }).map((order) => ({
+    ...order,
+    overdue_since: order.ready_to_pack_at || order.imported_at || order.created_at,
+    overdue_hours: Math.floor((Date.now() - Date.parse(order.ready_to_pack_at || order.imported_at || order.created_at)) / (60 * 60 * 1000))
+  }));
 
   res.json({
     totals: {
@@ -92,10 +108,12 @@ router.get("/dashboard/summary", (_req, res) => {
       in_progress: inProgressCount,
       packed_today: packedToday,
       shipped_today: shippedToday,
-      error_scans_today: errorScansToday
+      error_scans_today: errorScansToday,
+      overdue: overdueOrders.length
     },
     by_status: statusRows,
-    by_provider: providerRows
+    by_provider: providerRows,
+    overdue_orders: overdueOrders
   });
 });
 

@@ -37,14 +37,15 @@ after(() => {
   db.close();
 });
 
-function createOrder({ id = "order-1", items }) {
+function createOrder({ id = "order-1", items, readyAt, status = "Ready to Pack" }) {
   const now = nowIso();
+  const readyToPackAt = readyAt || now;
   db.prepare(`
     insert into orders
       (id, channel, order_key, tracking_id, status, imported_at, ready_to_pack_at, created_at, updated_at)
     values
-      (@id, 'reservation', @id, @id, 'Ready to Pack', @now, @now, @now, @now)
-  `).run({ id, now });
+      (@id, 'reservation', @id, @id, @status, @readyToPackAt, @readyToPackAt, @readyToPackAt, @now)
+  `).run({ id, status, readyToPackAt, now });
 
   for (const item of items) {
     db.prepare(`
@@ -61,6 +62,11 @@ function createOrder({ id = "order-1", items }) {
       now
     });
   }
+}
+
+async function getSummary() {
+  const response = await fetch(`${baseUrl}/dashboard/summary`);
+  return response.json();
 }
 
 async function scanItem(orderId, body) {
@@ -106,4 +112,16 @@ test("does not guess an unmapped product barcode when multiple SKUs remain", asy
   assert.equal(response.status, 400);
   assert.equal(payload.code, "BARCODE_NOT_MAPPED");
   assert.equal(db.prepare("select count(*) as count from product_barcodes").get().count, 0);
+});
+
+test("dashboard reports active orders delayed longer than one day", async () => {
+  const oldReadyAt = new Date(Date.now() - (25 * 60 * 60 * 1000)).toISOString();
+  createOrder({ id: "late-order", readyAt: oldReadyAt, items: [{ sku: "SKU-1", quantity_required: 1 }] });
+  createOrder({ id: "shipped-late-order", readyAt: oldReadyAt, status: "Shipped / Handed Over", items: [{ sku: "SKU-2", quantity_required: 1 }] });
+
+  const summary = await getSummary();
+
+  assert.equal(summary.totals.overdue, 1);
+  assert.equal(summary.overdue_orders.length, 1);
+  assert.equal(summary.overdue_orders[0].order_key, "late-order");
 });

@@ -29,6 +29,9 @@ const DEFAULT_PACKERS = [
   { id: "EMP002", employee_code: "EMP002", barcode: "EMP002", display_name: "Packer 2", active: 1 }
 ];
 
+const ACTIVE_ORDER_STATUSES = ["Ready to Pack", "Packing In Progress", "Scan Completed", "Verified", "Packed"];
+const OVERDUE_MS = 24 * 60 * 60 * 1000;
+
 let readyPromise;
 let productBarcodeCache;
 let productBarcodeCacheUnavailable = false;
@@ -461,7 +464,32 @@ export async function listFirebaseOrders({ status, channel, q, date, month } = {
 
 export async function listFirebaseReadyOrders() {
   const orders = await listFirebaseOrders();
-  return orders.filter((order) => ["Ready to Pack", "Packing In Progress", "Scan Completed", "Verified", "Packed"].includes(order.status));
+  return orders.filter((order) => ACTIVE_ORDER_STATUSES.includes(order.status));
+}
+
+async function listFirebaseOverdueOrders() {
+  await ensureFirebaseReady();
+  const db = requireFirestore();
+  const cutoff = new Date(Date.now() - OVERDUE_MS).toISOString();
+  const snapshot = await getDocs(query(
+    collection(db, "orders"),
+    orderBy("ready_to_pack_at", "asc"),
+    limit(2000)
+  )).catch((error) => {
+    console.warn("Overdue order query skipped.", error);
+    return { docs: [] };
+  });
+  return decorateFirebaseOrders(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })))
+    .filter((order) => ACTIVE_ORDER_STATUSES.includes(order.status))
+    .filter((order) => String(order.ready_to_pack_at || order.imported_at || order.created_at || "") < cutoff)
+    .map((order) => {
+      const overdueSince = order.ready_to_pack_at || order.imported_at || order.created_at;
+      return {
+        ...order,
+        overdue_since: overdueSince,
+        overdue_hours: Math.floor((Date.now() - Date.parse(overdueSince)) / (60 * 60 * 1000))
+      };
+    });
 }
 
 export async function getFirebaseOrder(id) {
@@ -912,16 +940,17 @@ export async function importFirebaseFile({ file, channel, deduplicationAction })
 }
 
 export async function firebaseSummary() {
-  const [orders, events] = await Promise.all([listFirebaseOrders(), listFirebaseScanEvents()]);
+  const [orders, events, overdueOrders] = await Promise.all([listFirebaseOrders(), listFirebaseScanEvents(), listFirebaseOverdueOrders()]);
   const today = nowIso().slice(0, 10);
-  const active = orders.filter((order) => ["Ready to Pack", "Packing In Progress", "Scan Completed", "Verified", "Packed"].includes(order.status));
+  const active = orders.filter((order) => ACTIVE_ORDER_STATUSES.includes(order.status));
   return {
     totals: {
       ready: orders.filter((order) => order.status === "Ready to Pack").length,
       in_progress: orders.filter((order) => order.status === "Packing In Progress").length,
       packed_today: orders.filter((order) => String(order.packed_at || "").startsWith(today)).length,
       shipped_today: orders.filter((order) => String(order.shipped_at || "").startsWith(today)).length,
-      error_scans_today: events.filter((event) => event.result === "error" && String(event.created_at || "").startsWith(today)).length
+      error_scans_today: events.filter((event) => event.result === "error" && String(event.created_at || "").startsWith(today)).length,
+      overdue: overdueOrders.length
     },
     by_status: Object.values(orders.reduce((acc, order) => {
       acc[order.status] = acc[order.status] || { status: order.status, count: 0 };
@@ -932,7 +961,8 @@ export async function firebaseSummary() {
       acc[order.shipping_provider] = acc[order.shipping_provider] || { shipping_provider: order.shipping_provider, count: 0 };
       acc[order.shipping_provider].count += 1;
       return acc;
-    }, {}))
+    }, {})),
+    overdue_orders: overdueOrders
   };
 }
 

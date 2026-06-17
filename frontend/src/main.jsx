@@ -371,6 +371,9 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+const ACTIVE_ORDER_STATUSES = ["Ready to Pack", "Packing In Progress", "Scan Completed", "Verified", "Packed"];
+const OVERDUE_MS = 24 * 60 * 60 * 1000;
+
 function readLocalDb() {
   const saved = localStorage.getItem(LOCAL_STORE_KEY);
   if (saved) {
@@ -628,27 +631,40 @@ async function localApi(path, options = {}) {
   }
   if (path === "/dashboard/summary") {
     const today = nowIso().slice(0, 10);
-    const active = db.orders.filter((order) => ["Ready to Pack", "Packing In Progress", "Scan Completed", "Verified", "Packed"].includes(order.status));
+    const active = db.orders.filter((order) => ACTIVE_ORDER_STATUSES.includes(order.status));
     const byProvider = Object.values(active.reduce((acc, order) => {
       const provider = decorateOrder(db, order).shipping_provider;
       acc[provider] = acc[provider] || { shipping_provider: provider, count: 0 };
       acc[provider].count += 1;
       return acc;
     }, {}));
+    const overdueOrders = active
+      .filter((order) => Date.now() - Date.parse(order.ready_to_pack_at || order.imported_at || order.created_at) > OVERDUE_MS)
+      .sort((left, right) => String(left.ready_to_pack_at || left.imported_at || left.created_at).localeCompare(String(right.ready_to_pack_at || right.imported_at || right.created_at)))
+      .map((order) => {
+        const overdueSince = order.ready_to_pack_at || order.imported_at || order.created_at;
+        return {
+          ...decorateOrder(db, order),
+          overdue_since: overdueSince,
+          overdue_hours: Math.floor((Date.now() - Date.parse(overdueSince)) / (60 * 60 * 1000))
+        };
+      });
     return {
       totals: {
         ready: db.orders.filter((order) => order.status === "Ready to Pack").length,
         in_progress: db.orders.filter((order) => order.status === "Packing In Progress").length,
         packed_today: db.orders.filter((order) => String(order.packed_at || "").startsWith(today)).length,
         shipped_today: db.orders.filter((order) => String(order.shipped_at || "").startsWith(today)).length,
-        error_scans_today: db.events.filter((event) => event.result === "error" && event.created_at.startsWith(today)).length
+        error_scans_today: db.events.filter((event) => event.result === "error" && event.created_at.startsWith(today)).length,
+        overdue: overdueOrders.length
       },
       by_status: Object.values(db.orders.reduce((acc, order) => {
         acc[order.status] = acc[order.status] || { status: order.status, count: 0 };
         acc[order.status].count += 1;
         return acc;
       }, {})),
-      by_provider: byProvider
+      by_provider: byProvider,
+      overdue_orders: overdueOrders
     };
   }
 
@@ -1159,6 +1175,31 @@ function Metric({ label, value, tone }) {
   );
 }
 
+function OverdueOrdersPanel({ orders = [] }) {
+  if (!orders.length) return null;
+  return (
+    <section className="panel overduePanel">
+      <div className="panelHeader dangerHeader">
+        <AlertTriangle size={22} />
+        <h3>แจ้งเตือนออเดอร์ล่าช้าเกิน 1 วัน ({orders.length})</h3>
+      </div>
+      <DataTable
+        columns={["ออเดอร์", "เลขพัสดุ", "ลูกค้า", "ขนส่ง", "สถานะ", "ล่าช้า", "นำเข้าเมื่อ"]}
+        rows={orders.map((order) => [
+          order.order_key,
+          order.tracking_id,
+          order.customer_name || "-",
+          order.shipping_provider || "-",
+          <StatusBadge status={order.status} />,
+          `${order.overdue_hours || 24}+ ชม.`,
+          formatDate(order.overdue_since || order.ready_to_pack_at || order.imported_at)
+        ])}
+        empty="ไม่มีออเดอร์ล่าช้า"
+      />
+    </section>
+  );
+}
+
 function DashboardPage({ summary, readyOrders }) {
   return (
     <div className="pageStack">
@@ -1174,7 +1215,10 @@ function DashboardPage({ summary, readyOrders }) {
         <Metric label="แพ็คเสร็จวันนี้" value={summary?.totals?.packed_today} tone="ok" />
         <Metric label="ส่งออกวันนี้" value={summary?.totals?.shipped_today} tone="ok" />
         <Metric label="สแกนผิดวันนี้" value={summary?.totals?.error_scans_today} tone="danger" />
+        <Metric label="ล่าช้าเกิน 1 วัน" value={summary?.totals?.overdue} tone={summary?.totals?.overdue ? "danger" : "ok"} />
       </div>
+
+      <OverdueOrdersPanel orders={summary?.overdue_orders || []} />
 
       <div className="contentGrid two">
         <section className="panel">

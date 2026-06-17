@@ -227,6 +227,15 @@ button {
   margin-left: auto;
 }
 
+.dangerHeader {
+  color: #8b1f18;
+}
+
+.overduePanel {
+  border-color: #efb0aa;
+  border-left: 5px solid #c7352a;
+}
+
 .dangerButton {
   background: #f6dedb;
   color: #8b1f18;
