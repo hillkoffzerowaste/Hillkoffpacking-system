@@ -50,6 +50,19 @@ function resolveScannedOrderItem(order, scannedSku) {
     return { error: "SKU_NOT_IN_ORDER", message: "Barcode is linked to a SKU that is not in this order." };
   }
 
+  // When only 1 remaining item, offer auto-map suggestion (consistent with Firebase/Local modes)
+  const remainingItems = order.items.filter((candidate) => candidate.quantity_scanned < candidate.quantity_required);
+  const candidates = remainingItems.length ? remainingItems : order.items;
+  if (candidates.length === 1) {
+    return {
+      conflict: {
+        barcode,
+        savedMapping: null,
+        candidate: candidates[0]
+      }
+    };
+  }
+
   return { error: "BARCODE_NOT_MAPPED", message: "Barcode is not linked to a SKU yet." };
 }
 
@@ -432,6 +445,23 @@ router.post("/packing/orders/:id/scan-item", (req, res) => {
       message: resolved.message
     });
     res.status(400).json({ result: "error", code: resolved.error, message: resolved.message });
+    return;
+  }
+  if (resolved.conflict) {
+    createScanEvent({
+      orderId: order.id,
+      packerId,
+      scanType: "item_verify",
+      scannedValue: scannedSku,
+      result: "error",
+      message: "Barcode SKU conflict."
+    });
+    res.status(400).json({
+      result: "error",
+      code: "SKU_CONFLICT",
+      message: "Barcode SKU conflict.",
+      conflict: resolved.conflict
+    });
     return;
   }
   const item = resolved.item;

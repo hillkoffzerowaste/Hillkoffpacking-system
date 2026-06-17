@@ -89,13 +89,15 @@ test("rejects empty SKU scans before single-item barcode fallback", async () => 
   assert.equal(db.prepare("select count(*) as count from order_items where quantity_scanned > 0").get().count, 0);
 });
 
-test("rejects unmapped product barcode even when one SKU remains", async () => {
+test("offers conflict suggestion for unmapped product barcode when one SKU remains", async () => {
   createOrder({ items: [{ sku: "SKU-1", quantity_required: 2 }] });
 
   const { response, payload } = await scanItem("order-1", { scanned_sku: "BAR-001" });
 
   assert.equal(response.status, 400);
-  assert.equal(payload.code, "BARCODE_NOT_MAPPED");
+  assert.equal(payload.code, "SKU_CONFLICT");
+  assert.ok(payload.conflict);
+  assert.equal(payload.conflict.candidate.sku, "SKU-1");
   assert.equal(db.prepare("select count(*) as count from product_barcodes").get().count, 0);
 });
 

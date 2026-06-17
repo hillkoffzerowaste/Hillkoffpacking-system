@@ -282,7 +282,21 @@ async function api(path, options = {}) {
       ...options
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.message || data.code || "Request failed");
+    if (!response.ok) {
+      if (data.code === "SKU_CONFLICT" && data.conflict) {
+        const error = new Error(data.message);
+        error.code = "sku_conflict";
+        error.conflict = {
+          barcode: data.conflict.barcode,
+          existing_sku: data.conflict.savedMapping?.sku || "",
+          existing_product_name: data.conflict.savedMapping?.product_name || null,
+          suggested_sku: data.conflict.candidate.sku,
+          suggested_product_name: data.conflict.candidate.product_name || null
+        };
+        throw error;
+      }
+      throw new Error(data.message || data.code || "Request failed");
+    }
     return data;
   } catch (error) {
     if (window.location.hostname.endsWith("github.io") || error instanceof TypeError) {
