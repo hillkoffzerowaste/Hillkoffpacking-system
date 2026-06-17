@@ -29,30 +29,6 @@ function sameSku(left, right) {
   return String(left || "").trim().toUpperCase() === String(right || "").trim().toUpperCase();
 }
 
-function rememberProductBarcode(barcode, item) {
-  const normalizedBarcode = String(barcode || "").trim();
-  if (!normalizedBarcode || sameSku(normalizedBarcode, item.sku)) return false;
-
-  const now = nowIso();
-  db.prepare(`
-    insert into product_barcodes
-      (barcode, sku, product_name, created_at, updated_at, last_seen_at, scan_count)
-    values
-      (@barcode, @sku, @productName, @now, @now, @now, 1)
-    on conflict(barcode) do update set
-      product_name = coalesce(excluded.product_name, product_barcodes.product_name),
-      updated_at = excluded.updated_at,
-      last_seen_at = excluded.last_seen_at,
-      scan_count = product_barcodes.scan_count + 1
-  `).run({
-    barcode: normalizedBarcode,
-    sku: item.sku,
-    productName: item.product_name || null,
-    now
-  });
-  return true;
-}
-
 function resolveScannedOrderItem(order, scannedSku) {
   const directItem = order.items.find((candidate) => sameSku(candidate.sku, scannedSku));
   if (directItem) return { item: directItem, mappedBarcode: false };
@@ -66,17 +42,9 @@ function resolveScannedOrderItem(order, scannedSku) {
   if (savedMapping) {
     const mappedItem = order.items.find((candidate) => sameSku(candidate.sku, savedMapping.sku));
     if (mappedItem) {
-      rememberProductBarcode(barcode, mappedItem);
       return { item: mappedItem, mappedBarcode: true };
     }
     return { error: "SKU_NOT_IN_ORDER", message: "Barcode is linked to a SKU that is not in this order." };
-  }
-
-  const remainingItems = order.items.filter((candidate) => candidate.quantity_scanned < candidate.quantity_required);
-  const candidates = remainingItems.length ? remainingItems : order.items;
-  if (candidates.length === 1) {
-    rememberProductBarcode(barcode, candidates[0]);
-    return { item: candidates[0], mappedBarcode: true, newMapping: true };
   }
 
   return { error: "BARCODE_NOT_MAPPED", message: "Barcode is not linked to a SKU yet." };

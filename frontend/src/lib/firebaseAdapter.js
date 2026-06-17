@@ -214,35 +214,6 @@ async function getProductBarcodeCache() {
   return productBarcodeCache;
 }
 
-async function rememberFirebaseProductBarcode(barcode, item) {
-  const normalizedBarcode = String(barcode || "").trim();
-  if (!normalizedBarcode || sameSku(normalizedBarcode, item.sku)) return false;
-
-  const cache = await getProductBarcodeCache();
-  const now = nowIso();
-  const existing = cache.get(normalizedBarcode);
-  const record = {
-    barcode: normalizedBarcode,
-    sku: existing?.sku || item.sku,
-    product_name: item.product_name || existing?.product_name || null,
-    created_at: existing?.created_at || now,
-    updated_at: now,
-    last_seen_at: now,
-    scan_count: Number(existing?.scan_count || 0) + 1
-  };
-  const db = requireFirestore();
-  if (!productBarcodeCacheUnavailable) {
-    try {
-      await setDoc(doc(db, "product_barcodes", productBarcodeDocId(normalizedBarcode)), record, { merge: true });
-    } catch (error) {
-      productBarcodeCacheUnavailable = true;
-      console.warn("Product barcode mapping could not be saved.", error);
-    }
-  }
-  cache.set(normalizedBarcode, record);
-  return true;
-}
-
 async function upsertFirebaseProductBarcode(payload) {
   await ensureFirebaseReady();
   const normalizedBarcode = String(payload.barcode || "").trim();
@@ -305,7 +276,6 @@ async function resolveFirebaseScannedOrderItem(order, scannedSku) {
   if (savedMapping) {
     const mappedItem = order.items.find((candidate) => sameSku(candidate.sku, savedMapping.sku));
     if (mappedItem) {
-      await rememberFirebaseProductBarcode(barcode, mappedItem);
       return { item: mappedItem, mappedBarcode: true };
     }
     const remainingItems = order.items.filter((candidate) => candidate.quantity_scanned < candidate.quantity_required);
@@ -314,13 +284,6 @@ async function resolveFirebaseScannedOrderItem(order, scannedSku) {
       return { conflict: { barcode, savedMapping, candidate: candidates[0] } };
     }
     return { error: "Barcode is linked to a SKU that is not in this order." };
-  }
-
-  const remainingItems = order.items.filter((candidate) => candidate.quantity_scanned < candidate.quantity_required);
-  const candidates = remainingItems.length ? remainingItems : order.items;
-  if (candidates.length === 1) {
-    await rememberFirebaseProductBarcode(barcode, candidates[0]);
-    return { item: candidates[0], mappedBarcode: true, newMapping: true };
   }
 
   return { error: "Barcode is not linked to a SKU yet." };
@@ -381,7 +344,7 @@ export async function importFirebaseProductBarcodes(records = []) {
       skipped += 1;
     }
   }
-  return { imported, skipped, conflicted, conflicts, product_barcodes: await listFirebaseProductBarcodes(), imported_items: items };
+  return { imported, skipped, conflicted, conflicts, imported_items: items };
 }
 
 export async function resolveFirebaseProductBarcodeConflict(payload) {
