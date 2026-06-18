@@ -30,6 +30,7 @@ import {
 import { BrowserMultiFormatReader } from "@zxing/browser";
 import { BarcodeFormat, DecodeHintType } from "@zxing/library";
 import { parseImportFileAuto, recordsToCsv } from "./lib/importParser";
+import { mapSkuImportRows, normalizeBarcode } from "./lib/skuImport";
 import {
   createFirebaseOrder,
   createFirebasePacker,
@@ -479,7 +480,7 @@ function sameSku(left, right) {
 }
 
 function upsertLocalProductBarcode(db, payload) {
-  const normalizedBarcode = String(payload.barcode || "").trim();
+  const normalizedBarcode = normalizeBarcode(payload.barcode);
   const sku = String(payload.sku || "").trim();
   if (!normalizedBarcode || !sku) throw new Error("Barcode and SKU are required.");
   const now = nowIso();
@@ -527,7 +528,7 @@ function resolveLocalScannedOrderItem(db, order, scannedSku) {
   const directItem = order.items.find((candidate) => sameSku(candidate.sku, scannedSku));
   if (directItem) return { item: directItem, mappedBarcode: false };
 
-  const barcode = String(scannedSku || "").trim();
+  const barcode = normalizeBarcode(scannedSku);
   if (!barcode) {
     return { error: "Scanned SKU is required." };
   }
@@ -2602,29 +2603,6 @@ function ExecutiveReportsPage({ refreshKey }) {
       </section>
     </div>
   );
-}
-
-function readLooseField(row, names) {
-  const normalize = (text) => String(text || "").toLowerCase().replace(/[^a-z0-9ก-๙]+/g, "");
-  const entries = Object.entries(row || {});
-  for (const name of names) {
-    const wanted = normalize(name);
-    const found = entries.find(([key, value]) => {
-      if (value === undefined || value === null || String(value).trim() === "") return false;
-      const candidate = normalize(key);
-      return candidate === wanted || candidate.includes(wanted) || wanted.includes(candidate);
-    });
-    if (found) return String(found[1]).trim();
-  }
-  return "";
-}
-
-function mapSkuImportRows(rows) {
-  return (rows || []).map((row) => ({
-    barcode: readLooseField(row, ["barcode", "bar code", "product barcode", "บาร์โค้ด", "รหัสบาร์โค้ด"]),
-    sku: readLooseField(row, ["sku", "seller sku", "product sku", "รหัสสินค้า", "SKU"]),
-    product_name: readLooseField(row, ["product_name", "product name", "name", "ชื่อสินค้า"])
-  })).filter((row) => row.barcode && row.sku);
 }
 
 function SkuDatabasePage() {

@@ -16,6 +16,7 @@ import {
 } from "firebase/firestore";
 import { ensureFirebaseAuth, getFirebaseServices } from "./firebase";
 import { mapImportRow, parseImportFileAuto } from "./importParser";
+import { normalizeBarcode } from "./skuImport";
 
 const DEFAULT_PROVIDERS = [
   { id: "JNT", code: "JNT", name: "J&T Express", display_name: "J&T Express", active: 1 },
@@ -34,7 +35,6 @@ const OVERDUE_MS = 24 * 60 * 60 * 1000;
 
 let readyPromise;
 let productBarcodeCache;
-let productBarcodeCacheUnavailable = false;
 
 function nowIso() {
   return new Date().toISOString();
@@ -196,7 +196,7 @@ function sameSku(left, right) {
 }
 
 function productBarcodeDocId(barcode) {
-  return encodeURIComponent(String(barcode || "").trim());
+  return encodeURIComponent(normalizeBarcode(barcode));
 }
 
 async function getProductBarcodeCache() {
@@ -207,19 +207,20 @@ async function getProductBarcodeCache() {
   try {
     mappings = await all("product_barcodes");
   } catch (error) {
-    productBarcodeCacheUnavailable = true;
     console.warn("Product barcode mapping is unavailable.", error);
-    return productBarcodeCache;
+    productBarcodeCache = undefined;
+    return new Map();
   }
   for (const mapping of mappings) {
-    if (mapping.barcode && mapping.sku) productBarcodeCache.set(mapping.barcode, mapping);
+    const barcode = normalizeBarcode(mapping.barcode);
+    if (barcode && mapping.sku) productBarcodeCache.set(barcode, { ...mapping, barcode });
   }
   return productBarcodeCache;
 }
 
 async function upsertFirebaseProductBarcode(payload) {
   await ensureFirebaseReady();
-  const normalizedBarcode = String(payload.barcode || "").trim();
+  const normalizedBarcode = normalizeBarcode(payload.barcode);
   const sku = String(payload.sku || "").trim();
   if (!normalizedBarcode || !sku) throw new Error("Barcode and SKU are required.");
   const cache = await getProductBarcodeCache();
@@ -269,13 +270,21 @@ async function resolveFirebaseScannedOrderItem(order, scannedSku) {
   const directItem = order.items.find((candidate) => sameSku(candidate.sku, scannedSku));
   if (directItem) return { item: directItem, mappedBarcode: false };
 
-  const barcode = String(scannedSku || "").trim();
+  const barcode = normalizeBarcode(scannedSku);
   if (!barcode) {
     return { error: "Scanned SKU is required." };
   }
 
   const cache = await getProductBarcodeCache();
-  const savedMapping = cache.get(barcode);
+  let savedMapping = cache?.get(barcode);
+  if (!savedMapping) {
+    const db = requireFirestore();
+    const snapshot = await getDoc(doc(db, "product_barcodes", productBarcodeDocId(barcode)));
+    if (snapshot.exists()) {
+      savedMapping = { id: snapshot.id, ...snapshot.data(), barcode };
+      cache?.set(barcode, savedMapping);
+    }
+  }
   if (savedMapping) {
     const mappedItem = order.items.find((candidate) => sameSku(candidate.sku, savedMapping.sku));
     if (mappedItem) {
