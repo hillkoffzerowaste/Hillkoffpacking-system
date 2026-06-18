@@ -1581,3 +1581,332 @@ dd {
   font-size: 11px;
   font-weight: 700;
 }
+
+.mobileNavButton,
+.mobileNavClose,
+.mobileNavBackdrop {
+  display: none;
+}
+
+@media (max-width: 960px) {
+  .appShell {
+    display: block;
+  }
+
+  .sidebar {
+    bottom: 0;
+    box-shadow: 18px 0 48px rgba(0, 0, 0, 0.28);
+    left: 0;
+    max-width: 86vw;
+    overflow-y: auto;
+    position: fixed;
+    top: 0;
+    transform: translateX(-105%);
+    transition: transform 180ms ease;
+    width: 300px;
+    z-index: 40;
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .brandBlock {
+    align-items: flex-start;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+  }
+
+  .mobileNavClose {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    color: #fff;
+    display: inline-flex;
+    flex: 0 0 42px;
+    height: 42px;
+    justify-content: center;
+  }
+
+  .mobileNavBackdrop {
+    background: rgba(10, 24, 19, 0.55);
+    inset: 0;
+    opacity: 0;
+    pointer-events: none;
+    position: fixed;
+    transition: opacity 180ms ease;
+    z-index: 35;
+  }
+
+  .mobileNavBackdrop.open {
+    display: block;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .workspace {
+    padding: 0 max(14px, env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+    width: 100%;
+  }
+
+  .topbar {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: 44px minmax(0, 1fr);
+    padding: max(8px, env(safe-area-inset-top)) 0 10px;
+    top: 0;
+  }
+
+  .mobileNavButton {
+    align-items: center;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--color-text);
+    display: inline-flex;
+    height: 42px;
+    justify-content: center;
+    width: 42px;
+  }
+
+  .topbarTitle {
+    min-width: 0;
+  }
+
+  .topbarTitle strong,
+  .topbarTitle span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .topbarActions {
+    grid-column: 1 / -1;
+    justify-content: stretch;
+  }
+
+  .topbarActions .secondary {
+    flex: 1 1 140px;
+  }
+
+  .metricsGrid,
+  .resultGrid,
+  .reportMetrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .contentGrid.two,
+  .stationGrid,
+  .ordersGrid,
+  .salesInsightsGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .formGrid,
+  .inlineForm,
+  .scanForm,
+  .filterBar,
+  .dispatchForm {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .manualItemRow {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 92px 42px 42px;
+  }
+
+  .pageTitle {
+    align-items: flex-start;
+  }
+
+  .salesToolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .salesToolbar label {
+    max-width: none;
+  }
+
+  .converterBox,
+  .itemEntryHeader,
+  .reportToolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tableWrap {
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 640px) {
+  .workspace {
+    padding-left: max(10px, env(safe-area-inset-left));
+    padding-right: max(10px, env(safe-area-inset-right));
+  }
+
+  .pageStack {
+    gap: 12px;
+    padding-top: 12px;
+  }
+
+  .pageTitle {
+    display: grid;
+    gap: 10px;
+  }
+
+  .pageTitle > .primary,
+  .pageTitle > .secondary {
+    width: 100%;
+  }
+
+  .titleLine {
+    align-items: flex-start;
+  }
+
+  .titleLine h2 {
+    font-size: 22px;
+  }
+
+  .pageTitle p {
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  .panel,
+  .salesScannerPanel,
+  .dispatchStage {
+    padding: 12px;
+  }
+
+  .metricsGrid,
+  .resultGrid,
+  .reportMetrics,
+  .salesSummaryGrid,
+  .orderHero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .metric {
+    min-height: 82px;
+  }
+
+  .metric strong {
+    font-size: 29px;
+  }
+
+  .inlineForm .primary,
+  .inlineForm .secondary,
+  .scanForm .primary,
+  .scanForm .secondary,
+  .filterBar .primary,
+  .filterBar .secondary,
+  .dispatchForm .primary,
+  .dispatchForm .secondary,
+  .formActions .primary,
+  .formActions .secondary {
+    width: 100%;
+  }
+
+  .manualItemRow {
+    grid-template-columns: minmax(0, 1fr) 42px;
+  }
+
+  .manualItemRow label {
+    grid-column: 1 / -1;
+  }
+
+  .scanHelperBar {
+    align-items: stretch;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .scanHelperBar > span,
+  .scanHelperBar .scanModeButton {
+    justify-content: center;
+    width: 100%;
+  }
+
+  .scanModeButton,
+  .primary,
+  .secondary {
+    white-space: normal;
+  }
+
+  .confirmScanBar,
+  .skuConflictBox,
+  .duplicateAlert {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .confirmScanBar .primary,
+  .skuConflictBox .primary,
+  .skuConflictBox .secondary,
+  .duplicateAlert .primary,
+  .duplicateAlert .secondary {
+    width: 100%;
+  }
+
+  .toolbarActions {
+    justify-content: stretch;
+  }
+
+  .toolbarActions > button {
+    flex: 1 1 100%;
+  }
+
+  .routeRow,
+  .compactOrder,
+  .queueItem {
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .itemRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .itemRow > svg {
+    grid-column: 2;
+  }
+
+  .cameraOverlay {
+    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  }
+
+  .cameraModal {
+    max-height: 100%;
+    overflow-y: auto;
+    padding: 12px;
+  }
+
+  .cameraHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cameraActions {
+    justify-content: stretch;
+  }
+
+  .cameraActions button {
+    flex: 1;
+  }
+
+  .segmentedControl {
+    width: 100%;
+  }
+
+  .segmentedControl button {
+    flex: 1;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  table {
+    min-width: 620px;
+  }
+}

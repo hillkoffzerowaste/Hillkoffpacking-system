@@ -13,6 +13,7 @@ import {
   LayoutDashboard,
   LockKeyhole,
   LogOut,
+  Menu,
   PackageCheck,
   Plus,
   RefreshCw,
@@ -23,7 +24,8 @@ import {
   Trash2,
   Upload,
   UserRoundPlus,
-  Users
+  Users,
+  X
 } from "lucide-react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 import { BarcodeFormat, DecodeHintType } from "@zxing/library";
@@ -3038,11 +3040,16 @@ function App() {
   const [loginError, setLoginError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("hillkoff-dark-mode") === "true");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
     localStorage.setItem("hillkoff-dark-mode", darkMode ? "true" : "false");
   }, [darkMode]);
+
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [activePage]);
 
   async function refresh() {
     try {
@@ -3155,10 +3162,21 @@ function App() {
 
   return (
     <div className="appShell">
-      <aside className="sidebar">
+      <button
+        type="button"
+        className={`mobileNavBackdrop ${mobileNavOpen ? "open" : ""}`}
+        aria-label="ปิดเมนู"
+        onClick={() => setMobileNavOpen(false)}
+      />
+      <aside className={`sidebar ${mobileNavOpen ? "open" : ""}`}>
         <div className="brandBlock">
-          <span>Hillkoff</span>
-          <h1>ระบบแพ็คสินค้า</h1>
+          <div>
+            <span>Hillkoff</span>
+            <h1>ระบบแพ็คสินค้า</h1>
+          </div>
+          <button type="button" className="mobileNavClose" aria-label="ปิดเมนู" onClick={() => setMobileNavOpen(false)}>
+            <X size={22} />
+          </button>
         </div>
         <nav>
           {NAV_ITEMS.map((item) => {
@@ -3180,7 +3198,10 @@ function App() {
 
       <main className="workspace">
         <header className="topbar">
-          <div>
+          <button type="button" className="mobileNavButton" aria-label="เปิดเมนู" onClick={() => setMobileNavOpen(true)}>
+            <Menu size={22} />
+          </button>
+          <div className="topbarTitle">
             <strong>{NAV_ITEMS.find((item) => item.id === activePage)?.label}</strong>
             <span>{new Date().toLocaleDateString("th-TH", { weekday: "long", year: "numeric", month: "short", day: "numeric" })}</span>
           </div>
