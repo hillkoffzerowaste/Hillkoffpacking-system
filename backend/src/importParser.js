@@ -5,6 +5,8 @@ import JSZip from "jszip";
 
 function decodeXml(valueText) {
   return String(valueText || "")
+    .replace(/&#x([0-9a-f]+);/gi, (_match, code) => String.fromCodePoint(Number.parseInt(code, 16)))
+    .replace(/&#(\d+);/g, (_match, code) => String.fromCodePoint(Number.parseInt(code, 10)))
     .replaceAll("&quot;", "\"")
     .replaceAll("&apos;", "'")
     .replaceAll("&lt;", "<")
@@ -87,22 +89,49 @@ async function parseXlsx(buffer) {
   const workbookRelsXml = await zip.file("xl/_rels/workbook.xml.rels")?.async("text");
   if (!workbookXml || !workbookRelsXml) throw new Error("Excel file could not be read.");
 
-  const firstSheetTag = String(workbookXml).match(/<sheet\b[^>]*>/i)?.[0] || "";
-  const firstSheetRelId = xmlAttribute(firstSheetTag, "r:id") || xmlAttribute(firstSheetTag, "id");
   const relationships = parseRelationships(workbookRelsXml);
-  const firstSheetRel = relationships[firstSheetRelId] || Object.values(relationships)
-    .find((relationship) => relationship.type.includes("/worksheet"));
-  const worksheetPath = normalizeZipPath("xl/workbook.xml", firstSheetRel?.target || "worksheets/sheet1.xml");
-  const worksheetXml = await zip.file(worksheetPath)?.async("text");
-  if (!worksheetXml) throw new Error("Excel worksheet could not be found.");
-
   const sharedStringsRel = Object.values(relationships).find((relationship) => relationship.type.includes("/sharedStrings"));
   const sharedStringsPath = sharedStringsRel
     ? normalizeZipPath("xl/workbook.xml", sharedStringsRel.target)
     : "xl/sharedStrings.xml";
   const sharedStringsXml = await zip.file(sharedStringsPath)?.async("text");
   const sharedStrings = sharedStringsXml ? parseSharedStrings(sharedStringsXml) : [];
-  return parseWorksheetRows(worksheetXml, sharedStrings);
+  const sheetTags = [...String(workbookXml).matchAll(/<sheet\b[^>]*>/gi)].map((match) => match[0]);
+  const worksheetRelationships = Object.values(relationships)
+    .filter((relationship) => relationship.type.includes("/worksheet"));
+  const sheetCandidates = sheetTags.length
+    ? sheetTags.map((tag) => {
+      const relationshipId = xmlAttribute(tag, "r:id") || xmlAttribute(tag, "id");
+      return relationships[relationshipId];
+    })
+    : worksheetRelationships;
+  const sheets = [];
+
+  for (const relationship of sheetCandidates) {
+    if (!relationship?.target) continue;
+    const worksheetPath = normalizeZipPath("xl/workbook.xml", relationship.target);
+    const worksheetXml = await zip.file(worksheetPath)?.async("text");
+    if (worksheetXml) sheets.push(parseWorksheetRows(worksheetXml, sharedStrings));
+  }
+
+  if (!sheets.length) throw new Error("Excel worksheet could not be found.");
+  return sheets;
+}
+
+function normalizedHeader(text) {
+  return String(text || "").toLowerCase().replace(/[^a-z0-9ก-๙]+/g, "");
+}
+
+function headerScore(row) {
+  const joined = (row || []).map(normalizedHeader).join(" ");
+  const groups = [
+    ["orderid", "ordernumber", "ordersn", "หมายเลขคำสั่งซื้อ", "เลขที่ใบสั่งจอง"],
+    ["tracking", "trackingcode", "trackingnumber", "หมายเลขติดตามพัสดุ"],
+    ["sku", "sellersku", "รหัสสินค้า"],
+    ["quantity", "qty", "จำนวน"],
+    ["barcode", "บาร์โค้ด"]
+  ];
+  return groups.filter((patterns) => patterns.some((pattern) => joined.includes(normalizedHeader(pattern)))).length;
 }
 
 function rowsToRecords(rows) {
@@ -110,13 +139,24 @@ function rowsToRecords(rows) {
     .filter((row) => Array.isArray(row))
     .map((row) => row.map((cell) => String(cell ?? "").trim()))
     .filter((row) => row.some(Boolean));
-  const headers = normalizedRows[0] || [];
-  return cleanRecords(normalizedRows.slice(1).map((row) => {
+  const detectedHeaderIndex = normalizedRows.findIndex((row) => headerScore(row) >= 2);
+  const headerIndex = detectedHeaderIndex >= 0 ? detectedHeaderIndex : 0;
+  const headers = normalizedRows[headerIndex] || [];
+  return cleanRecords(normalizedRows.slice(headerIndex + 1).map((row) => {
     return headers.reduce((record, header, index) => {
       if (header) record[header] = row[index] || "";
       return record;
     }, {});
   }).filter((record) => Object.values(record).some((item) => item !== "")));
+}
+
+function selectBestWorksheet(sheets) {
+  const candidates = (sheets || []).map((rows) => {
+    const records = rowsToRecords(rows);
+    const score = headerScore(Object.keys(records[0] || {})) * 100000 + records.length;
+    return { records, score };
+  }).filter((candidate) => candidate.records.length);
+  return candidates.sort((left, right) => right.score - left.score)[0]?.records || [];
 }
 
 function cleanRecords(records) {
@@ -148,12 +188,20 @@ export async function parseImportFile(file) {
   }
 
   if (lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls")) {
+    let records;
     try {
-      return rowsToRecords(await parseXlsx(buffer));
+      records = selectBestWorksheet(await parseXlsx(buffer));
     } catch (_error) {
-      const rows = await readXlsxFile(buffer);
-      return rowsToRecords(rows);
+      const workbook = await readXlsxFile(buffer);
+      const sheets = Array.isArray(workbook) && workbook[0]?.data
+        ? workbook.map((sheet) => sheet.data)
+        : [workbook];
+      records = selectBestWorksheet(sheets);
     }
+    if (!records.length) {
+      throw new Error("Excel file contains column headers but no order data rows. Please export the orders again.");
+    }
+    return records;
   }
 
   if (lowerName.endsWith(".xps")) {

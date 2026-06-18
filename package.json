@@ -17,7 +17,7 @@
     "android:open": "npm run android:sync && npx cap open android",
     "android:apk": "npm run android:sync && cd android && gradlew assembleDebug",
     "android:release": "npm run android:sync && cd android && gradlew assembleRelease",
-    "test": "npm run test -w backend"
+    "test": "npm run test -w backend && npm run test -w frontend"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.4.0",

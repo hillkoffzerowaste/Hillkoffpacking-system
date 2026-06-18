@@ -30,6 +30,8 @@ function value(row, names) {
 
 function decodeXml(valueText) {
   return String(valueText || "")
+    .replace(/&#x([0-9a-f]+);/gi, (_match, code) => String.fromCodePoint(Number.parseInt(code, 16)))
+    .replace(/&#(\d+);/g, (_match, code) => String.fromCodePoint(Number.parseInt(code, 10)))
     .replaceAll("&quot;", "\"")
     .replaceAll("&apos;", "'")
     .replaceAll("&lt;", "<")
@@ -484,27 +486,69 @@ async function parseExcel(file, channel) {
     throw new Error("Excel file could not be read. Please save it again as .xlsx and try importing again.");
   }
 
-  const firstSheetTag = String(workbookXml).match(/<sheet\b[^>]*>/i)?.[0] || "";
-  const firstSheetRelId = xmlAttribute(firstSheetTag, "r:id") || xmlAttribute(firstSheetTag, "id");
   const relationships = parseRelationships(workbookRelsXml);
-  const firstSheetRel = relationships[firstSheetRelId] || Object.values(relationships)
-    .find((relationship) => relationship.type.includes("/worksheet"));
-  const worksheetPath = normalizeZipPath("xl/workbook.xml", firstSheetRel?.target || "worksheets/sheet1.xml");
-  const worksheetXml = await zip.file(worksheetPath)?.async("text");
-
-  if (!worksheetXml) {
-    throw new Error("Excel worksheet could not be found. Please keep the order data in the first sheet and try again.");
-  }
-
   const sharedStringsRel = Object.values(relationships).find((relationship) => relationship.type.includes("/sharedStrings"));
   const sharedStringsPath = sharedStringsRel
     ? normalizeZipPath("xl/workbook.xml", sharedStringsRel.target)
     : "xl/sharedStrings.xml";
   const sharedStringsXml = await zip.file(sharedStringsPath)?.async("text");
   const sharedStrings = sharedStringsXml ? parseSharedStrings(sharedStringsXml) : [];
-  const rows = parseWorksheetRows(worksheetXml, sharedStrings);
+  const sheetTags = [...String(workbookXml).matchAll(/<sheet\b[^>]*>/gi)].map((match) => match[0]);
+  const worksheetRelationships = Object.values(relationships)
+    .filter((relationship) => relationship.type.includes("/worksheet"));
+  const sheetCandidates = sheetTags.length
+    ? sheetTags.map((tag, index) => {
+      const relationshipId = xmlAttribute(tag, "r:id") || xmlAttribute(tag, "id");
+      return {
+        name: xmlAttribute(tag, "name") || `Sheet ${index + 1}`,
+        relationship: relationships[relationshipId]
+      };
+    })
+    : worksheetRelationships.map((relationship, index) => ({
+      name: `Sheet ${index + 1}`,
+      relationship
+    }));
 
-  return spreadsheetRowsToRecords(rows, channel, "Excel file");
+  const parsedSheets = [];
+  let foundHeaderWithoutData = false;
+  for (const candidate of sheetCandidates) {
+    if (!candidate.relationship?.target) continue;
+    const worksheetPath = normalizeZipPath(workbookPath, candidate.relationship.target);
+    const worksheetXml = await zip.file(worksheetPath)?.async("text");
+    if (!worksheetXml) continue;
+
+    const rows = parseWorksheetRows(worksheetXml, sharedStrings);
+    const nonEmptyRows = rows
+      .filter((row) => Array.isArray(row))
+      .map((row) => row.map((cell) => String(cell ?? "").trim()))
+      .filter((row) => row.some(Boolean));
+    if (nonEmptyRows.length === 1) {
+      const scores = channelScoreFromHeaders(nonEmptyRows[0], file.name);
+      foundHeaderWithoutData ||= Math.max(...Object.values(scores), 0) > 0;
+    }
+    try {
+      const records = spreadsheetRowsToRecords(rows, channel, `Excel sheet "${candidate.name}"`);
+      const headers = Object.keys(records[0] || {});
+      const channelScores = channelScoreFromHeaders(headers, file.name);
+      const headerScore = Math.max(...Object.values(channelScores), 0);
+      parsedSheets.push({
+        records,
+        score: headerScore * 100000 + records.length
+      });
+    } catch {
+      // Cover sheets, instructions, and blank sheets are expected in marketplace workbooks.
+    }
+  }
+
+  const bestSheet = parsedSheets.sort((left, right) => right.score - left.score)[0];
+  if (!bestSheet) {
+    if (foundHeaderWithoutData) {
+      throw new Error("ไฟล์ Excel มีเฉพาะหัวตาราง แต่ไม่มีรายการออเดอร์ กรุณาส่งออกไฟล์ที่มีข้อมูลออเดอร์แล้วลองใหม่");
+    }
+    throw new Error("Excel file could not be parsed. No worksheet with a header row and order data was found.");
+  }
+
+  return bestSheet.records;
 }
 
 export async function parseImportFile(file, channel) {
