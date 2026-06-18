@@ -30,6 +30,14 @@ const DEFAULT_PACKERS = [
   { id: "EMP002", employee_code: "EMP002", barcode: "EMP002", display_name: "Packer 2", active: 1 }
 ];
 
+const DEFAULT_PRODUCT_BARCODES = [
+  {
+    barcode: "8857109099860",
+    sku: "IG-HK-0044",
+    product_name: "ชาไทยหอมมั๊ก 500 กรัม"
+  }
+];
+
 const ACTIVE_ORDER_STATUSES = ["Ready to Pack", "Packing In Progress", "Scan Completed", "Verified", "Packed"];
 const OVERDUE_MS = 24 * 60 * 60 * 1000;
 
@@ -283,6 +291,17 @@ async function resolveFirebaseScannedOrderItem(order, scannedSku) {
     if (snapshot.exists()) {
       savedMapping = { id: snapshot.id, ...snapshot.data(), barcode };
       cache?.set(barcode, savedMapping);
+    } else {
+      const legacySnapshot = await getDocs(query(
+        collection(db, "product_barcodes"),
+        where("barcode", "==", barcode),
+        limit(1)
+      ));
+      if (!legacySnapshot.empty) {
+        const legacy = legacySnapshot.docs[0];
+        savedMapping = { id: legacy.id, ...legacy.data(), barcode };
+        cache?.set(barcode, savedMapping);
+      }
     }
   }
   if (savedMapping) {
@@ -317,6 +336,18 @@ async function ensureSeedData() {
 
   for (const packer of DEFAULT_PACKERS) {
     await setDoc(doc(db, "packers", packer.id), packer, { merge: true });
+  }
+
+  for (const mapping of DEFAULT_PRODUCT_BARCODES) {
+    await setDoc(
+      doc(db, "product_barcodes", productBarcodeDocId(mapping.barcode)),
+      {
+        ...mapping,
+        created_at: nowIso(),
+        updated_at: nowIso()
+      },
+      { merge: true }
+    );
   }
 }
 
