@@ -182,7 +182,7 @@ function overwriteOrder(existing, mapped, batchId, sourceFileName) {
   return existing.id;
 }
 
-export function importRows({ rows, channel, deduplicationAction, fileName }) {
+export function importRows({ rows, channel, deduplicationAction, fileName, source = "file" }) {
   const now = nowIso();
   const batchId = nanoid();
   const stats = {
@@ -201,8 +201,8 @@ export function importRows({ rows, channel, deduplicationAction, fileName }) {
     insert into import_batches
       (id, source, channel, file_name, total_rows, status, created_at)
     values
-      (@id, 'file', @channel, @fileName, @totalRows, 'processing', @now)
-  `).run({ id: batchId, channel, fileName, totalRows: rows.length, now });
+      (@id, @source, @channel, @fileName, @totalRows, 'processing', @now)
+  `).run({ id: batchId, source, channel, fileName, totalRows: rows.length, now });
 
   const transaction = db.transaction(() => {
     const mappedOrders = aggregateMappedOrders(rows.map((row, index) => {
@@ -280,4 +280,3 @@ export function importRows({ rows, channel, deduplicationAction, fileName }) {
   stats.status = stats.error_count ? "completed_with_errors" : "completed";
   return stats;
 }
-

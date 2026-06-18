@@ -120,6 +120,49 @@ export function migrate() {
     );
 
     create index if not exists idx_scan_events_created_at on scan_events(created_at);
+
+    create table if not exists marketplace_connections (
+      id text primary key,
+      channel text not null,
+      external_shop_id text not null,
+      shop_name text,
+      region text,
+      access_token_encrypted text not null,
+      refresh_token_encrypted text,
+      access_token_expires_at text,
+      refresh_token_expires_at text,
+      metadata_json text,
+      active integer not null default 1,
+      created_at text not null,
+      updated_at text not null,
+      unique(channel, external_shop_id)
+    );
+
+    create index if not exists idx_marketplace_connections_channel
+      on marketplace_connections(channel, active);
+
+    create table if not exists marketplace_oauth_states (
+      state text primary key,
+      channel text not null,
+      expires_at text not null,
+      created_at text not null
+    );
+
+    create table if not exists marketplace_webhook_events (
+      id text primary key,
+      channel text not null,
+      external_event_id text,
+      event_type text,
+      payload_json text not null,
+      status text not null,
+      error_message text,
+      received_at text not null,
+      processed_at text
+    );
+
+    create unique index if not exists idx_marketplace_webhook_event_unique
+      on marketplace_webhook_events(channel, external_event_id)
+      where external_event_id is not null and external_event_id != '';
   `);
 
   const orderColumns = db.prepare("pragma table_info(orders)").all().map((column) => column.name);

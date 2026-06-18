@@ -6,6 +6,7 @@ import { config } from "./config.js";
 import { db, nowIso } from "./db.js";
 import { importRows } from "./importService.js";
 import { parseImportFile } from "./importParser.js";
+import { marketplaceRouter } from "./marketplaces/routes.js";
 import {
   createScanEvent,
   findOrderByLookup,
@@ -69,6 +70,8 @@ function resolveScannedOrderItem(order, scannedSku) {
 router.get("/health", (_req, res) => {
   res.json({ ok: true, service: "hillkoff-packing-backend" });
 });
+
+router.use("/integrations", marketplaceRouter);
 
 router.get("/reference/packers", (_req, res) => {
   res.json({ packers: listPackers() });

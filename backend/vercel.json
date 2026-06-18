@@ -1,13 +1,21 @@
 {
-  "framework": "vite",
-  "buildCommand": "npm run build:vercel",
-  "outputDirectory": "dist",
+  "version": 2,
+  "framework": null,
   "installCommand": "npm install",
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 60,
+      "includeFiles": "src/**"
+    }
+  },
   "rewrites": [
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "source": "/api/(.*)",
+      "destination": "/api/index.js"
+    },
+    {
+      "source": "/",
+      "destination": "/api/index.js"
     }
   ]
 }
-

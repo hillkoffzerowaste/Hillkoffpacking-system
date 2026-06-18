@@ -1,0 +1,48 @@
+{
+  "info": {
+    "name": "Hillkoff Marketplace Integration",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "apiBase", "value": "http://localhost:4000/api" },
+    { "key": "channel", "value": "shopee" },
+    { "key": "shopId", "value": "REPLACE_SHOP_ID" }
+  ],
+  "item": [
+    {
+      "name": "Integration status",
+      "request": {
+        "method": "GET",
+        "url": "{{apiBase}}/integrations/status"
+      }
+    },
+    {
+      "name": "Create authorization URL",
+      "request": {
+        "method": "GET",
+        "url": "{{apiBase}}/integrations/{{channel}}/authorize"
+      }
+    },
+    {
+      "name": "Sync orders",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"shop_id\": \"{{shopId}}\",\n  \"from\": \"2026-06-17T00:00:00Z\",\n  \"to\": \"2026-06-18T23:59:59Z\",\n  \"deduplication_action\": \"ignore\"\n}"
+        },
+        "url": "{{apiBase}}/integrations/{{channel}}/sync"
+      }
+    },
+    {
+      "name": "Disconnect shop",
+      "request": {
+        "method": "DELETE",
+        "url": "{{apiBase}}/integrations/{{channel}}/connections/{{shopId}}"
+      }
+    }
+  ]
+}

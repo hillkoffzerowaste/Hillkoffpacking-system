@@ -1,0 +1,118 @@
+openapi: 3.0.3
+info:
+  title: Hillkoff Marketplace Integration API
+  version: 1.0.0
+servers:
+  - url: https://api.example.com/api
+paths:
+  /integrations/status:
+    get:
+      summary: Check marketplace configuration and connected shops
+      responses:
+        "200":
+          description: Integration status
+  /integrations/{channel}/authorize:
+    get:
+      summary: Create seller authorization URL
+      parameters:
+        - $ref: "#/components/parameters/Channel"
+      responses:
+        "200":
+          description: Authorization URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authorization_url:
+                    type: string
+                    format: uri
+  /integrations/{channel}/callback:
+    get:
+      summary: OAuth callback registered with the marketplace
+      parameters:
+        - $ref: "#/components/parameters/Channel"
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+        - name: shop_id
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Connected shop
+  /integrations/{channel}/sync:
+    post:
+      summary: Pull orders and import them into the packing system
+      parameters:
+        - $ref: "#/components/parameters/Channel"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SyncRequest"
+      responses:
+        "200":
+          description: Import summary
+  /integrations/{channel}/webhook:
+    post:
+      summary: Receive signed marketplace events
+      parameters:
+        - $ref: "#/components/parameters/Channel"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Event accepted
+        "401":
+          description: Invalid webhook signature
+  /integrations/{channel}/connections/{shopId}:
+    delete:
+      summary: Disable a connected shop
+      parameters:
+        - $ref: "#/components/parameters/Channel"
+        - name: shopId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Connection disabled
+components:
+  parameters:
+    Channel:
+      name: channel
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [shopee, lazada, tiktok]
+  schemas:
+    SyncRequest:
+      type: object
+      required: [shop_id]
+      properties:
+        shop_id:
+          type: string
+        from:
+          type: string
+          format: date-time
+        to:
+          type: string
+          format: date-time
+        deduplication_action:
+          type: string
+          enum: [ignore, overwrite]

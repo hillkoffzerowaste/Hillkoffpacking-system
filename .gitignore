@@ -15,6 +15,7 @@ coverage/
 .env.*
 !.env.example
 !.env.firebase.example
+!.env.marketplaces.example
 !frontend/.env.example
 
 # Logs
@@ -30,3 +31,4 @@ Thumbs.db
 # Imported operational files
 backend/data/
 backend/uploads/
+.vercel
