@@ -59,7 +59,7 @@ export function getLoginUsername() {
 }
 
 export function hasFirebaseLoginConfig() {
-  return Boolean(import.meta.env.VITE_LOGIN_EMAIL);
+  return hasFirebaseConfig();
 }
 
 export function subscribeFirebaseUser(callback) {
