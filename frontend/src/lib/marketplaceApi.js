@@ -1,7 +1,7 @@
 const MARKETPLACE_API_BASE = (
   import.meta.env.VITE_MARKETPLACE_API_BASE
   || import.meta.env.VITE_API_BASE
-  || "http://localhost:4000/api"
+  || "https://hillkoffpacking-system-backend.vercel.app/api"
 ).replace(/\/$/, "");
 
 async function request(path, options = {}) {

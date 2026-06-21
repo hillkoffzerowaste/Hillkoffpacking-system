@@ -78,11 +78,13 @@ export async function signInFirebaseUser(username, password) {
   }
 
   const expectedUsername = getLoginUsername();
-  if (String(username || "").trim() !== expectedUsername) {
+  const enteredUsername = String(username || "").trim();
+  const isReviewEmail = enteredUsername.includes("@");
+  if (!isReviewEmail && enteredUsername !== expectedUsername) {
     throw new Error("Username หรือ password ไม่ถูกต้อง");
   }
 
-  const email = import.meta.env.VITE_LOGIN_EMAIL;
+  const email = isReviewEmail ? enteredUsername : import.meta.env.VITE_LOGIN_EMAIL;
   if (!email) {
     throw new Error("ยังไม่ได้ตั้งค่า VITE_LOGIN_EMAIL สำหรับล็อกอิน");
   }

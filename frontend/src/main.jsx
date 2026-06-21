@@ -20,6 +20,7 @@ import {
   Search,
   Send,
   Settings,
+  Store,
   Truck,
   Trash2,
   Upload,
@@ -31,6 +32,12 @@ import { BrowserMultiFormatReader } from "@zxing/browser";
 import { BarcodeFormat, DecodeHintType } from "@zxing/library";
 import { parseImportFileAuto, recordsToCsv } from "./lib/importParser";
 import { mapSkuImportRows, normalizeBarcode } from "./lib/skuImport";
+import {
+  disconnectMarketplace,
+  getMarketplaceIntegrationStatus,
+  openMarketplaceAuthorization,
+  syncMarketplaceOrders
+} from "./lib/marketplaceApi";
 import {
   createFirebaseOrder,
   createFirebasePacker,
@@ -166,6 +173,7 @@ const NAV_ITEMS = [
   { id: "sku", label: "ฐาน SKU", icon: Barcode },
   { id: "orders", label: "รายการออเดอร์", icon: ClipboardList },
   { id: "audit", label: "ประวัติสแกน", icon: FileClock },
+  { id: "marketplace", label: "เชื่อม Marketplace", icon: Store },
   { id: "settings", label: "ตั้งค่า", icon: Settings }
 ];
 
@@ -180,6 +188,7 @@ const TITLE_LABELS = {
   "SKU Database": "ฐาน SKU",
   "Order Control Center": "รายการออเดอร์",
   "Scan Audit": "ประวัติการสแกน",
+  "Marketplace Integration": "เชื่อม TikTok Shop",
   Settings: "ตั้งค่า"
 };
 
@@ -194,6 +203,7 @@ const SUBTITLE_LABELS = {
   "SKU Database": "เก็บฐานข้อมูลบาร์โค้ดสินค้าไว้ใช้ตรวจ SKU และนำเข้าไฟล์ SKU ในอนาคต",
   "Order Control Center": "ค้นหา ตรวจสถานะ และเปิดดูรายละเอียดออเดอร์ทั้งหมด",
   "Scan Audit": "ดูย้อนหลังว่าใครสแกนอะไร ผ่านหรือไม่ผ่าน ใช้ตรวจปัญหาได้",
+  "Marketplace Integration": "เชื่อมบัญชีร้าน TikTok Shop และซิงก์ออเดอร์เข้าสู่ระบบแพ็คสินค้า",
   Settings: "จัดการพนักงานแพ็คและรายชื่อขนส่งที่ใช้ในระบบ"
 };
 
@@ -2949,6 +2959,190 @@ function SettingsPage({ onRefresh, refreshKey }) {
   );
 }
 
+function marketplaceDate(offsetDays = 0) {
+  return new Date(Date.now() + offsetDays * 86400000).toISOString().slice(0, 10);
+}
+
+function MarketplacePage({ onRefresh }) {
+  const reviewDemo = new URLSearchParams(window.location.search).get("review_demo") === "1";
+  const [status, setStatus] = useState(null);
+  const [connection, setConnection] = useState(() => {
+    try {
+      const saved = localStorage.getItem("hillkoff-marketplace-tiktok");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [range, setRange] = useState({ from: marketplaceDate(-7), to: marketplaceDate(1) });
+  const [result, setResult] = useState(reviewDemo ? {
+    fetched_count: 3,
+    created_count: 3,
+    updated_count: 0,
+    ignored_count: 0,
+    rows: [
+      { "Order ID": "576420018312345678", "Tracking ID": "TH-TTS-10001", "Seller SKU": "IG-HK-0044", "Product Name": "ชาไทยหอมมั๊ก 500 กรัม", Quantity: 1 },
+      { "Order ID": "576420018312345679", "Tracking ID": "TH-TTS-10002", "Seller SKU": "RB-HK-0347", "Product Name": "กาแฟคั่ว Hillkoff", Quantity: 2 },
+      { "Order ID": "576420018312345680", "Tracking ID": "TH-TTS-10003", "Seller SKU": "SY-MN-0018", "Product Name": "เครื่องดื่มสำเร็จรูป", Quantity: 1 }
+    ]
+  } : null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState(reviewDemo ? "โหมดสาธิตสำหรับการตรวจแอป: แสดงตัวอย่างผลลัพธ์หลังซิงก์ TikTok Shop" : "");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    if (hash.get("marketplace") === "tiktok" && hash.get("connected") === "1") {
+      const nextConnection = {
+        channel: "tiktok",
+        shop_id: hash.get("shop_id"),
+        shop_name: hash.get("shop_name") || "TikTok Shop",
+        connection_ticket: hash.get("connection_ticket")
+      };
+      localStorage.setItem("hillkoff-marketplace-tiktok", JSON.stringify(nextConnection));
+      setConnection(nextConnection);
+      setMessage(`เชื่อมบัญชี ${nextConnection.shop_name} สำเร็จแล้ว`);
+      window.history.replaceState({}, "", `${window.location.pathname}?page=marketplace`);
+    }
+    getMarketplaceIntegrationStatus().then(setStatus).catch((err) => setError(err.message));
+  }, []);
+
+  async function connectTikTok() {
+    setBusy(true);
+    setError("");
+    try {
+      await openMarketplaceAuthorization("tiktok");
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  }
+
+  async function syncOrders() {
+    if (!connection?.connection_ticket) {
+      setError("กรุณาเชื่อมบัญชี TikTok Shop ก่อนซิงก์ออเดอร์");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const fetched = await syncMarketplaceOrders("tiktok", {
+        shop_id: connection.shop_id,
+        connection_ticket: connection.connection_ticket,
+        from: `${range.from}T00:00:00+07:00`,
+        to: `${range.to}T23:59:59+07:00`,
+        deduplication_action: "ignore",
+        preview_only: true
+      });
+      if (fetched.connection_ticket) {
+        const nextConnection = { ...connection, connection_ticket: fetched.connection_ticket };
+        localStorage.setItem("hillkoff-marketplace-tiktok", JSON.stringify(nextConnection));
+        setConnection(nextConnection);
+      }
+      const rows = fetched.rows || [];
+      let imported = { created_count: 0, updated_count: 0, ignored_count: 0, error_count: 0 };
+      if (rows.length) {
+        const file = new File(
+          [recordsToCsv(rows)],
+          `tiktok-api-${Date.now()}.csv`,
+          { type: "text/csv;charset=utf-8" }
+        );
+        const form = new FormData();
+        form.append("file", file);
+        form.append("channel", "tiktok");
+        form.append("deduplication_action", "ignore");
+        imported = await api("/imports/orders", { method: "POST", body: form });
+        await onRefresh();
+      }
+      setResult({ ...fetched, ...imported, rows });
+      setMessage(rows.length
+        ? `ซิงก์ TikTok Shop สำเร็จ พบ ${rows.length} รายการ และนำเข้าออเดอร์แล้ว`
+        : "ซิงก์สำเร็จ แต่ไม่พบออเดอร์ใหม่ในช่วงวันที่เลือก");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disconnect() {
+    setBusy(true);
+    try {
+      if (connection?.shop_id) await disconnectMarketplace("tiktok", connection.shop_id).catch(() => {});
+      localStorage.removeItem("hillkoff-marketplace-tiktok");
+      setConnection(null);
+      setResult(null);
+      setMessage("ยกเลิกการเชื่อมบัญชี TikTok Shop แล้ว");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const configured = status?.platforms?.tiktok?.configured;
+  const shownConnection = reviewDemo
+    ? { shop_name: "Hillkoff Official Shop (บัญชีทดสอบ)", shop_id: "7495123456789012345" }
+    : connection;
+
+  return (
+    <div className="pageStack marketplacePage">
+      <PageTitle icon={Store} title="Marketplace Integration" subtitle="เชื่อมบัญชีร้าน TikTok Shop แล้วดึงออเดอร์เข้าสู่ขั้นตอนตรวจ SKU และแพ็คสินค้า" />
+      {reviewDemo && <Alert>โหมดสาธิตสำหรับเอกสารตรวจแอป - ไม่มีการเรียกข้อมูลร้านค้าจริง</Alert>}
+      {message && <Alert>{message}</Alert>}
+      {error && <Alert type="error">{error}</Alert>}
+
+      <section className="panel marketplaceHero">
+        <div className="marketplaceBrand">
+          <div className="marketplaceLogo">TikTok Shop</div>
+          <div><h3>การเชื่อมต่อร้านค้า</h3><p>OAuth ปลอดภัย ไม่แสดง App Secret หรือ access token ในหน้าแอป</p></div>
+        </div>
+        <div className={`connectionBadge ${shownConnection ? "connected" : ""}`}>
+          {shownConnection ? "เชื่อมต่อแล้ว" : configured ? "พร้อมเชื่อมต่อ" : "รอตั้งค่า API"}
+        </div>
+        {shownConnection ? (
+          <div className="connectedShop">
+            <div><span>ร้านค้าที่เชื่อมต่อ</span><strong>{shownConnection.shop_name || "TikTok Shop"}</strong><small>Shop ID: {shownConnection.shop_id || "-"}</small></div>
+            {!reviewDemo && <button type="button" className="secondary dangerButton" disabled={busy} onClick={disconnect}>ยกเลิกการเชื่อมต่อ</button>}
+          </div>
+        ) : (
+          <button type="button" className="primary marketplaceConnect" disabled={busy || configured === false} onClick={connectTikTok}>
+            <Store size={19} />{busy ? "กำลังเปิด TikTok Shop..." : "เชื่อมบัญชี TikTok Shop"}
+          </button>
+        )}
+      </section>
+
+      <section className="panel">
+        <div className="panelHeader"><RefreshCw size={20} /><h3>ซิงก์คำสั่งซื้อ</h3></div>
+        <div className="marketplaceSyncForm">
+          <label>ตั้งแต่วันที่<input type="date" value={range.from} onChange={(event) => setRange({ ...range, from: event.target.value })} /></label>
+          <label>ถึงวันที่<input type="date" value={range.to} onChange={(event) => setRange({ ...range, to: event.target.value })} /></label>
+          <button type="button" className="primary" disabled={busy || (!shownConnection && !reviewDemo)} onClick={reviewDemo ? () => setMessage("สาธิต: ซิงก์ออเดอร์สำเร็จ 3 รายการ") : syncOrders}>
+            <RefreshCw size={18} />{busy ? "กำลังซิงก์..." : "ซิงก์ออเดอร์"}
+          </button>
+        </div>
+      </section>
+
+      {result && <>
+        <div className="resultGrid marketplaceResults">
+          <Metric label="พบจาก TikTok" value={result.fetched_count || 0} tone="ok" />
+          <Metric label="สร้างออเดอร์ใหม่" value={result.created_count || 0} tone="ok" />
+          <Metric label="อัปเดตออเดอร์" value={result.updated_count || 0} />
+          <Metric label="ข้ามรายการซ้ำ" value={result.ignored_count || 0} tone="warn" />
+          <Metric label="ข้อผิดพลาด" value={result.error_count || 0} tone={result.error_count ? "danger" : "ok"} />
+        </div>
+        <section className="panel">
+          <div className="panelHeader"><ClipboardList size={20} /><h3>ออเดอร์ที่ดึงสำเร็จ</h3></div>
+          <DataTable
+            columns={["Order ID", "Tracking ID", "Seller SKU", "สินค้า", "จำนวน"]}
+            rows={(result.rows || []).slice(0, 20).map((row) => [row["Order ID"] || "-", row["Tracking ID"] || "-", row["Seller SKU"] || "-", row["Product Name"] || "-", row.Quantity || 1])}
+            empty="ไม่พบออเดอร์ในช่วงวันที่เลือก"
+          />
+        </section>
+      </>}
+    </div>
+  );
+}
+
 function DataTable({ columns, rows, empty }) {
   return (
     <div className="tableWrap">
@@ -3007,7 +3201,11 @@ function LoginPage({ onLogin, error, busy }) {
 }
 
 function App() {
-  const [activePage, setActivePage] = useState("dashboard");
+  const [activePage, setActivePage] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    return params.get("page") || (hash.get("marketplace") ? "marketplace" : "dashboard");
+  });
   const [summary, setSummary] = useState(null);
   const [readyOrders, setReadyOrders] = useState([]);
   const [apiError, setApiError] = useState("");
@@ -3135,6 +3333,7 @@ function App() {
     sku: <SkuDatabasePage refreshKey={refreshKey} />,
     orders: <OrdersPage onRefresh={refresh} refreshKey={refreshKey} />,
     audit: <AuditPage refreshKey={refreshKey} />,
+    marketplace: <MarketplacePage onRefresh={refresh} />,
     settings: <SettingsPage onRefresh={refresh} refreshKey={refreshKey} />
   }[activePage];
 

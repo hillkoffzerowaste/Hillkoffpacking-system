@@ -32,3 +32,5 @@ Thumbs.db
 backend/data/
 backend/uploads/
 .vercel
+output/
+tmp/

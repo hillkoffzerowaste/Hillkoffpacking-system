@@ -9,6 +9,10 @@ function enabled(...values) {
 }
 
 const callbackBase = appConfig.publicApiUrl.replace(/\/$/, "");
+export const marketplaceFrontendUrl = env(
+  "MARKETPLACE_FRONTEND_URL",
+  "https://hillkoffzerowaste.github.io/Hillkoffpacking-system/"
+);
 
 export const marketplaceConfigs = {
   shopee: {

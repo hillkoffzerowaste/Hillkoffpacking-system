@@ -1,5 +1,5 @@
 import express from "express";
-import { marketplaceStatus, requireMarketplaceConfig } from "./config.js";
+import { marketplaceFrontendUrl, marketplaceStatus, requireMarketplaceConfig } from "./config.js";
 import {
   completeAuthorization,
   createAuthorizationUrl,
@@ -32,13 +32,16 @@ marketplaceRouter.get("/:channel/authorize", (req, res) => {
 marketplaceRouter.get("/:channel/callback", async (req, res, next) => {
   try {
     const channel = channelParam(req);
-    const connection = await completeAuthorization(channel, req.query);
-    res.json({
-      connected: true,
-      channel,
-      external_shop_id: connection.external_shop_id,
-      shop_name: connection.shop_name
-    });
+    const result = await completeAuthorization(channel, req.query);
+    const target = new URL(marketplaceFrontendUrl);
+    target.hash = new URLSearchParams({
+      marketplace: channel,
+      connected: "1",
+      shop_id: result.connection.external_shop_id,
+      shop_name: result.connection.shop_name || "",
+      connection_ticket: result.connection_ticket
+    }).toString();
+    res.redirect(target.toString());
   } catch (error) {
     next(error);
   }
@@ -50,7 +53,9 @@ marketplaceRouter.post("/:channel/sync", async (req, res, next) => {
     const result = await syncMarketplaceOrders(channel, req.body.shop_id, {
       from: req.body.from,
       to: req.body.to,
-      deduplicationAction: req.body.deduplication_action
+      deduplicationAction: req.body.deduplication_action,
+      connectionTicket: req.body.connection_ticket,
+      previewOnly: Boolean(req.body.preview_only)
     });
     res.json(result);
   } catch (error) {
