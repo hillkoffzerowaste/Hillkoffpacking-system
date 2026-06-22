@@ -188,7 +188,7 @@ const TITLE_LABELS = {
   "SKU Database": "ฐาน SKU",
   "Order Control Center": "รายการออเดอร์",
   "Scan Audit": "ประวัติการสแกน",
-  "Marketplace Integration": "เชื่อม TikTok Shop",
+  "Marketplace Integration": "เชื่อม Marketplace",
   Settings: "ตั้งค่า"
 };
 
@@ -203,7 +203,7 @@ const SUBTITLE_LABELS = {
   "SKU Database": "เก็บฐานข้อมูลบาร์โค้ดสินค้าไว้ใช้ตรวจ SKU และนำเข้าไฟล์ SKU ในอนาคต",
   "Order Control Center": "ค้นหา ตรวจสถานะ และเปิดดูรายละเอียดออเดอร์ทั้งหมด",
   "Scan Audit": "ดูย้อนหลังว่าใครสแกนอะไร ผ่านหรือไม่ผ่าน ใช้ตรวจปัญหาได้",
-  "Marketplace Integration": "เชื่อมบัญชีร้าน TikTok Shop และซิงก์ออเดอร์เข้าสู่ระบบแพ็คสินค้า",
+  "Marketplace Integration": "เชื่อมบัญชีร้าน Marketplace และซิงก์ออเดอร์เข้าสู่ระบบแพ็คสินค้า",
   Settings: "จัดการพนักงานแพ็คและรายชื่อขนส่งที่ใช้ในระบบ"
 };
 
@@ -2964,11 +2964,16 @@ function marketplaceDate(offsetDays = 0) {
 }
 
 function MarketplacePage({ onRefresh }) {
-  const reviewDemo = new URLSearchParams(window.location.search).get("review_demo") === "1";
+  const marketplaceParams = new URLSearchParams(window.location.search);
+  const reviewDemo = marketplaceParams.get("review_demo") === "1";
+  const channel = marketplaceParams.get("provider") === "shopee" ? "shopee" : "tiktok";
+  const platformName = channel === "shopee" ? "Shopee" : "TikTok Shop";
+  const platformOrderLabel = channel === "shopee" ? "Shopee" : "TikTok";
+  const connectionStorageKey = `hillkoff-marketplace-${channel}`;
   const [status, setStatus] = useState(null);
   const [connection, setConnection] = useState(() => {
     try {
-      const saved = localStorage.getItem("hillkoff-marketplace-tiktok");
+      const saved = localStorage.getItem(connectionStorageKey);
       return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
@@ -2980,38 +2985,42 @@ function MarketplacePage({ onRefresh }) {
     created_count: 3,
     updated_count: 0,
     ignored_count: 0,
-    rows: [
+    rows: channel === "shopee" ? [
+      { "Order ID": "250622ABC1D2E3", "Tracking ID": "THSPX100010001", "Seller SKU": "IG-HK-0044", "Product Name": "ชาไทยหอมมั๊ก 500 กรัม", Quantity: 1 },
+      { "Order ID": "250622ABC1D2E4", "Tracking ID": "THSPX100010002", "Seller SKU": "RB-HK-0347", "Product Name": "กาแฟคั่ว Hillkoff", Quantity: 2 },
+      { "Order ID": "250622ABC1D2E5", "Tracking ID": "THSPX100010003", "Seller SKU": "SY-MN-0018", "Product Name": "เครื่องดื่มสำเร็จรูป", Quantity: 1 }
+    ] : [
       { "Order ID": "576420018312345678", "Tracking ID": "TH-TTS-10001", "Seller SKU": "IG-HK-0044", "Product Name": "ชาไทยหอมมั๊ก 500 กรัม", Quantity: 1 },
       { "Order ID": "576420018312345679", "Tracking ID": "TH-TTS-10002", "Seller SKU": "RB-HK-0347", "Product Name": "กาแฟคั่ว Hillkoff", Quantity: 2 },
       { "Order ID": "576420018312345680", "Tracking ID": "TH-TTS-10003", "Seller SKU": "SY-MN-0018", "Product Name": "เครื่องดื่มสำเร็จรูป", Quantity: 1 }
     ]
   } : null);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState(reviewDemo ? "โหมดสาธิตสำหรับการตรวจแอป: แสดงตัวอย่างผลลัพธ์หลังซิงก์ TikTok Shop" : "");
+  const [message, setMessage] = useState(reviewDemo ? `โหมดสาธิตสำหรับการตรวจแอป: แสดงตัวอย่างผลลัพธ์หลังซิงก์ ${platformName}` : "");
   const [error, setError] = useState("");
 
   useEffect(() => {
     const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-    if (hash.get("marketplace") === "tiktok" && hash.get("connected") === "1") {
+    if (hash.get("marketplace") === channel && hash.get("connected") === "1") {
       const nextConnection = {
-        channel: "tiktok",
+        channel,
         shop_id: hash.get("shop_id"),
-        shop_name: hash.get("shop_name") || "TikTok Shop",
+        shop_name: hash.get("shop_name") || platformName,
         connection_ticket: hash.get("connection_ticket")
       };
-      localStorage.setItem("hillkoff-marketplace-tiktok", JSON.stringify(nextConnection));
+      localStorage.setItem(connectionStorageKey, JSON.stringify(nextConnection));
       setConnection(nextConnection);
       setMessage(`เชื่อมบัญชี ${nextConnection.shop_name} สำเร็จแล้ว`);
-      window.history.replaceState({}, "", `${window.location.pathname}?page=marketplace`);
+      window.history.replaceState({}, "", `${window.location.pathname}?page=marketplace&provider=${channel}`);
     }
     getMarketplaceIntegrationStatus().then(setStatus).catch((err) => setError(err.message));
   }, []);
 
-  async function connectTikTok() {
+  async function connectMarketplace() {
     setBusy(true);
     setError("");
     try {
-      await openMarketplaceAuthorization("tiktok");
+      await openMarketplaceAuthorization(channel);
     } catch (err) {
       setError(err.message);
       setBusy(false);
@@ -3020,14 +3029,14 @@ function MarketplacePage({ onRefresh }) {
 
   async function syncOrders() {
     if (!connection?.connection_ticket) {
-      setError("กรุณาเชื่อมบัญชี TikTok Shop ก่อนซิงก์ออเดอร์");
+      setError(`กรุณาเชื่อมบัญชี ${platformName} ก่อนซิงก์ออเดอร์`);
       return;
     }
     setBusy(true);
     setError("");
     setMessage("");
     try {
-      const fetched = await syncMarketplaceOrders("tiktok", {
+      const fetched = await syncMarketplaceOrders(channel, {
         shop_id: connection.shop_id,
         connection_ticket: connection.connection_ticket,
         from: `${range.from}T00:00:00+07:00`,
@@ -3037,7 +3046,7 @@ function MarketplacePage({ onRefresh }) {
       });
       if (fetched.connection_ticket) {
         const nextConnection = { ...connection, connection_ticket: fetched.connection_ticket };
-        localStorage.setItem("hillkoff-marketplace-tiktok", JSON.stringify(nextConnection));
+        localStorage.setItem(connectionStorageKey, JSON.stringify(nextConnection));
         setConnection(nextConnection);
       }
       const rows = fetched.rows || [];
@@ -3045,19 +3054,19 @@ function MarketplacePage({ onRefresh }) {
       if (rows.length) {
         const file = new File(
           [recordsToCsv(rows)],
-          `tiktok-api-${Date.now()}.csv`,
+          `${channel}-api-${Date.now()}.csv`,
           { type: "text/csv;charset=utf-8" }
         );
         const form = new FormData();
         form.append("file", file);
-        form.append("channel", "tiktok");
+        form.append("channel", channel);
         form.append("deduplication_action", "ignore");
         imported = await api("/imports/orders", { method: "POST", body: form });
         await onRefresh();
       }
       setResult({ ...fetched, ...imported, rows });
       setMessage(rows.length
-        ? `ซิงก์ TikTok Shop สำเร็จ พบ ${rows.length} รายการ และนำเข้าออเดอร์แล้ว`
+        ? `ซิงก์ ${platformName} สำเร็จ พบ ${rows.length} รายการ และนำเข้าออเดอร์แล้ว`
         : "ซิงก์สำเร็จ แต่ไม่พบออเดอร์ใหม่ในช่วงวันที่เลือก");
     } catch (err) {
       setError(err.message);
@@ -3069,31 +3078,49 @@ function MarketplacePage({ onRefresh }) {
   async function disconnect() {
     setBusy(true);
     try {
-      if (connection?.shop_id) await disconnectMarketplace("tiktok", connection.shop_id).catch(() => {});
-      localStorage.removeItem("hillkoff-marketplace-tiktok");
+      if (connection?.shop_id) await disconnectMarketplace(channel, connection.shop_id).catch(() => {});
+      localStorage.removeItem(connectionStorageKey);
       setConnection(null);
       setResult(null);
-      setMessage("ยกเลิกการเชื่อมบัญชี TikTok Shop แล้ว");
+      setMessage(`ยกเลิกการเชื่อมบัญชี ${platformName} แล้ว`);
     } finally {
       setBusy(false);
     }
   }
 
-  const configured = status?.platforms?.tiktok?.configured;
+  const configured = status?.platforms?.[channel]?.configured;
   const shownConnection = reviewDemo
-    ? { shop_name: "Hillkoff Official Shop (บัญชีทดสอบ)", shop_id: "7495123456789012345" }
+    ? {
+      shop_name: channel === "shopee" ? "Hillkoff Official Store (บัญชีทดสอบ)" : "Hillkoff Official Shop (บัญชีทดสอบ)",
+      shop_id: channel === "shopee" ? "123456789" : "7495123456789012345"
+    }
     : connection;
 
   return (
     <div className="pageStack marketplacePage">
-      <PageTitle icon={Store} title="Marketplace Integration" subtitle="เชื่อมบัญชีร้าน TikTok Shop แล้วดึงออเดอร์เข้าสู่ขั้นตอนตรวจ SKU และแพ็คสินค้า" />
+      <PageTitle icon={Store} title="Marketplace Integration" subtitle={`เชื่อมบัญชีร้าน ${platformName} แล้วดึงออเดอร์เข้าสู่ขั้นตอนตรวจ SKU และแพ็คสินค้า`} />
+      <div className="marketplaceTabs" role="navigation" aria-label="เลือก Marketplace">
+        {[
+          { id: "tiktok", label: "TikTok Shop" },
+          { id: "shopee", label: "Shopee" }
+        ].map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={channel === item.id ? "active" : ""}
+            onClick={() => window.location.assign(`${window.location.pathname}?page=marketplace&provider=${item.id}${reviewDemo ? "&review_demo=1" : ""}`)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
       {reviewDemo && <Alert>โหมดสาธิตสำหรับเอกสารตรวจแอป - ไม่มีการเรียกข้อมูลร้านค้าจริง</Alert>}
       {message && <Alert>{message}</Alert>}
       {error && <Alert type="error">{error}</Alert>}
 
       <section className="panel marketplaceHero">
         <div className="marketplaceBrand">
-          <div className="marketplaceLogo">TikTok Shop</div>
+          <div className={`marketplaceLogo ${channel === "shopee" ? "shopeeLogo" : ""}`}>{platformName}</div>
           <div><h3>การเชื่อมต่อร้านค้า</h3><p>OAuth ปลอดภัย ไม่แสดง App Secret หรือ access token ในหน้าแอป</p></div>
         </div>
         <div className={`connectionBadge ${shownConnection ? "connected" : ""}`}>
@@ -3101,12 +3128,12 @@ function MarketplacePage({ onRefresh }) {
         </div>
         {shownConnection ? (
           <div className="connectedShop">
-            <div><span>ร้านค้าที่เชื่อมต่อ</span><strong>{shownConnection.shop_name || "TikTok Shop"}</strong><small>Shop ID: {shownConnection.shop_id || "-"}</small></div>
+            <div><span>ร้านค้าที่เชื่อมต่อ</span><strong>{shownConnection.shop_name || platformName}</strong><small>Shop ID: {shownConnection.shop_id || "-"}</small></div>
             {!reviewDemo && <button type="button" className="secondary dangerButton" disabled={busy} onClick={disconnect}>ยกเลิกการเชื่อมต่อ</button>}
           </div>
         ) : (
-          <button type="button" className="primary marketplaceConnect" disabled={busy || configured === false} onClick={connectTikTok}>
-            <Store size={19} />{busy ? "กำลังเปิด TikTok Shop..." : "เชื่อมบัญชี TikTok Shop"}
+          <button type="button" className="primary marketplaceConnect" disabled={busy || configured === false} onClick={connectMarketplace}>
+            <Store size={19} />{busy ? `กำลังเปิด ${platformName}...` : `เชื่อมบัญชี ${platformName}`}
           </button>
         )}
       </section>
@@ -3124,7 +3151,7 @@ function MarketplacePage({ onRefresh }) {
 
       {result && <>
         <div className="resultGrid marketplaceResults">
-          <Metric label="พบจาก TikTok" value={result.fetched_count || 0} tone="ok" />
+          <Metric label={`พบจาก ${platformOrderLabel}`} value={result.fetched_count || 0} tone="ok" />
           <Metric label="สร้างออเดอร์ใหม่" value={result.created_count || 0} tone="ok" />
           <Metric label="อัปเดตออเดอร์" value={result.updated_count || 0} />
           <Metric label="ข้ามรายการซ้ำ" value={result.ignored_count || 0} tone="warn" />
