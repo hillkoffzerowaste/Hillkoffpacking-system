@@ -2966,9 +2966,10 @@ function marketplaceDate(offsetDays = 0) {
 function MarketplacePage({ onRefresh }) {
   const marketplaceParams = new URLSearchParams(window.location.search);
   const reviewDemo = marketplaceParams.get("review_demo") === "1";
-  const channel = marketplaceParams.get("provider") === "shopee" ? "shopee" : "tiktok";
-  const platformName = channel === "shopee" ? "Shopee" : "TikTok Shop";
-  const platformOrderLabel = channel === "shopee" ? "Shopee" : "TikTok";
+  const requestedChannel = marketplaceParams.get("provider");
+  const channel = ["tiktok", "shopee", "lazada"].includes(requestedChannel) ? requestedChannel : "tiktok";
+  const platformName = { tiktok: "TikTok Shop", shopee: "Shopee", lazada: "Lazada" }[channel];
+  const platformOrderLabel = { tiktok: "TikTok", shopee: "Shopee", lazada: "Lazada" }[channel];
   const connectionStorageKey = `hillkoff-marketplace-${channel}`;
   const [status, setStatus] = useState(null);
   const [connection, setConnection] = useState(() => {
@@ -2989,6 +2990,10 @@ function MarketplacePage({ onRefresh }) {
       { "Order ID": "250622ABC1D2E3", "Tracking ID": "THSPX100010001", "Seller SKU": "IG-HK-0044", "Product Name": "ชาไทยหอมมั๊ก 500 กรัม", Quantity: 1 },
       { "Order ID": "250622ABC1D2E4", "Tracking ID": "THSPX100010002", "Seller SKU": "RB-HK-0347", "Product Name": "กาแฟคั่ว Hillkoff", Quantity: 2 },
       { "Order ID": "250622ABC1D2E5", "Tracking ID": "THSPX100010003", "Seller SKU": "SY-MN-0018", "Product Name": "เครื่องดื่มสำเร็จรูป", Quantity: 1 }
+    ] : channel === "lazada" ? [
+      { "Order ID": "987654321001", "Tracking ID": "LEXTH100020001", "Seller SKU": "IG-HK-0044", "Product Name": "ชาไทยหอมมั๊ก 500 กรัม", Quantity: 1 },
+      { "Order ID": "987654321002", "Tracking ID": "LEXTH100020002", "Seller SKU": "RB-HK-0347", "Product Name": "กาแฟคั่ว Hillkoff", Quantity: 2 },
+      { "Order ID": "987654321003", "Tracking ID": "LEXTH100020003", "Seller SKU": "SY-MN-0018", "Product Name": "เครื่องดื่มสำเร็จรูป", Quantity: 1 }
     ] : [
       { "Order ID": "576420018312345678", "Tracking ID": "TH-TTS-10001", "Seller SKU": "IG-HK-0044", "Product Name": "ชาไทยหอมมั๊ก 500 กรัม", Quantity: 1 },
       { "Order ID": "576420018312345679", "Tracking ID": "TH-TTS-10002", "Seller SKU": "RB-HK-0347", "Product Name": "กาแฟคั่ว Hillkoff", Quantity: 2 },
@@ -3089,11 +3094,13 @@ function MarketplacePage({ onRefresh }) {
   }
 
   const configured = status?.platforms?.[channel]?.configured;
+  const demoShop = {
+    tiktok: { shop_name: "Hillkoff Official Shop (บัญชีทดสอบ)", shop_id: "7495123456789012345" },
+    shopee: { shop_name: "Hillkoff Official Store (บัญชีทดสอบ)", shop_id: "123456789" },
+    lazada: { shop_name: "Hillkoff Official Store TH (บัญชีทดสอบ)", shop_id: "1000123456" }
+  }[channel];
   const shownConnection = reviewDemo
-    ? {
-      shop_name: channel === "shopee" ? "Hillkoff Official Store (บัญชีทดสอบ)" : "Hillkoff Official Shop (บัญชีทดสอบ)",
-      shop_id: channel === "shopee" ? "123456789" : "7495123456789012345"
-    }
+    ? demoShop
     : connection;
 
   return (
@@ -3102,7 +3109,8 @@ function MarketplacePage({ onRefresh }) {
       <div className="marketplaceTabs" role="navigation" aria-label="เลือก Marketplace">
         {[
           { id: "tiktok", label: "TikTok Shop" },
-          { id: "shopee", label: "Shopee" }
+          { id: "shopee", label: "Shopee" },
+          { id: "lazada", label: "Lazada" }
         ].map((item) => (
           <button
             key={item.id}
@@ -3120,7 +3128,7 @@ function MarketplacePage({ onRefresh }) {
 
       <section className="panel marketplaceHero">
         <div className="marketplaceBrand">
-          <div className={`marketplaceLogo ${channel === "shopee" ? "shopeeLogo" : ""}`}>{platformName}</div>
+          <div className={`marketplaceLogo ${channel === "shopee" ? "shopeeLogo" : channel === "lazada" ? "lazadaLogo" : ""}`}>{platformName}</div>
           <div><h3>การเชื่อมต่อร้านค้า</h3><p>OAuth ปลอดภัย ไม่แสดง App Secret หรือ access token ในหน้าแอป</p></div>
         </div>
         <div className={`connectionBadge ${shownConnection ? "connected" : ""}`}>

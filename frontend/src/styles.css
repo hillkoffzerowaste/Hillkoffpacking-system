@@ -438,6 +438,12 @@ button {
   box-shadow: none;
 }
 
+.marketplaceLogo.lazadaLogo {
+  background: linear-gradient(135deg, #0f146d, #7b2cbf 55%, #f36f21);
+  border-left-color: #f36f21;
+  box-shadow: none;
+}
+
 .marketplaceTabs {
   display: flex;
   gap: 8px;
